@@ -11,19 +11,3 @@ build
 *.log
 .env
 .env.*
-
-# working artefacts — never ship these
-_internal/
-plans/
-specs/
-docs/superpowers/
-.remember/
-MEMORY.md
-ui-prototypes/
-mockups/
-design-ref/
-variants/
-.claude/
-*-internal/
-*-backup*
-*.bundle
