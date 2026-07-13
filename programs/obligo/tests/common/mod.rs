@@ -8,11 +8,15 @@
 
 use anchor_lang::solana_program::program_pack::Pack;
 use anchor_lang::{
-    prelude::Pubkey, AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas,
+    prelude::{Clock, Pubkey},
+    AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas,
 };
 use anchor_spl::token::spl_token;
+use anchor_spl::token_2022::spl_token_2022::{
+    extension::StateWithExtensions, state::Mint as MintState,
+};
 use litesvm::LiteSVM;
-use obligo::state::{Merchant, Protocol};
+use obligo::state::{Merchant, PointBatch, Protocol};
 use solana_instruction::{error::InstructionError, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -425,6 +429,57 @@ impl Env {
         m
     }
 
+    pub fn issue(
+        &mut self,
+        m: &MerchantHandle,
+        customer: &Pubkey,
+        amount: u64,
+    ) -> Result<(), TransactionError> {
+        self.try_issue(
+            &m.authority.insecure_clone(),
+            m.merchant,
+            m.points_mint,
+            customer,
+            amount,
+        )
+    }
+
+    /// Issuance with every account nameable, so a test can aim it at somebody else's merchant.
+    pub fn try_issue(
+        &mut self,
+        signer: &Keypair,
+        merchant: Pubkey,
+        points_mint: Pubkey,
+        customer: &Pubkey,
+        amount: u64,
+    ) -> Result<(), TransactionError> {
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::IssuePoints {
+                authority: signer.pubkey(),
+                merchant,
+                points_mint,
+                customer: *customer,
+                customer_points: associated_token_address(customer, &points_mint),
+                batch: batch_address(&merchant, customer),
+                token_program: TOKEN_2022_ID,
+                associated_token_program: ATA_PROGRAM_ID,
+                system_program: SYSTEM_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::IssuePoints { amount }.data(),
+        };
+        let signer = signer.insecure_clone();
+        self.send(&[ix], &[&signer])
+    }
+
+    /// Push the clock forward, so a test can observe a TTL that actually moves.
+    pub fn warp(&mut self, seconds: i64) {
+        let mut clock = self.svm.get_sysvar::<Clock>();
+        clock.unix_timestamp += seconds;
+        self.svm.set_sysvar(&clock);
+    }
+
     // ---- reads --------------------------------------------------------------------------
 
     pub fn protocol_state(&self) -> Protocol {
@@ -435,6 +490,32 @@ impl Env {
     pub fn merchant_state(&self, m: &MerchantHandle) -> Merchant {
         let raw = self.svm.get_account(&m.merchant).unwrap();
         Merchant::try_deserialize(&mut raw.data.as_slice()).unwrap()
+    }
+
+    pub fn batch_state(&self, m: &MerchantHandle, customer: &Pubkey) -> PointBatch {
+        let raw = self
+            .svm
+            .get_account(&batch_address(&m.merchant, customer))
+            .unwrap();
+        PointBatch::try_deserialize(&mut raw.data.as_slice()).unwrap()
+    }
+
+    pub fn points_account(&self, m: &MerchantHandle, customer: &Pubkey) -> Pubkey {
+        associated_token_address(customer, &m.points_mint)
+    }
+
+    pub fn points_balance(&self, m: &MerchantHandle, customer: &Pubkey) -> u64 {
+        self.token_balance(&self.points_account(m, customer))
+    }
+
+    /// What Token-2022 itself believes the supply to be — the number `points_outstanding` has to
+    /// reconcile against.
+    pub fn points_supply(&self, m: &MerchantHandle) -> u64 {
+        let raw = self.svm.get_account(&m.points_mint).unwrap();
+        StateWithExtensions::<MintState>::unpack(&raw.data)
+            .unwrap()
+            .base
+            .supply
     }
 
     /// Works for both token programs: `amount` is a u64 at offset 64 in either layout.
@@ -476,6 +557,18 @@ pub fn batch_address(merchant: &Pubkey, customer: &Pubkey) -> Pubkey {
 
 pub fn eaml_address(mint: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[b"extra-account-metas", mint.as_ref()], &obligo_hook::ID).0
+}
+
+pub fn permit_address(source: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[b"permit", source.as_ref()], &obligo_hook::ID).0
+}
+
+pub fn associated_token_address(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
+    anchor_spl::associated_token::get_associated_token_address_with_program_id(
+        owner,
+        mint,
+        &TOKEN_2022_ID,
+    )
 }
 
 #[track_caller]

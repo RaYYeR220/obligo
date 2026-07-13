@@ -79,4 +79,9 @@ pub mod obligo {
     ) -> Result<()> {
         instructions::create_points_mint::handler(ctx, name, symbol, uri)
     }
+
+    /// Mint points to a customer. Refused the moment the merchant can no longer back them.
+    pub fn issue_points(ctx: Context<IssuePoints>, amount: u64) -> Result<()> {
+        instructions::issue_points::handler(ctx, amount)
+    }
 }
