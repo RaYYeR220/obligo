@@ -40,3 +40,19 @@ pub struct Redeemed {
     /// The running total on the `issuer -> acceptor` edge after this redemption.
     pub obligation: u64,
 }
+
+/// Two merchants' mutual debt, resolved. Read `offset` and `paid` side by side: the first is the
+/// debt that cancelled against debt, the second is all the money the pair actually needed to find.
+#[event]
+pub struct Settled {
+    /// The merchant the graph says owes more. Not whichever one the caller named first.
+    pub debtor: Pubkey,
+    pub creditor: Pubkey,
+    /// Cancelled against the counter-claim. No liquidity required for this part, ever.
+    pub offset: u64,
+    /// USDC moved, debtor's vault to creditor's. `min(net, collateral)`.
+    pub paid: u64,
+    /// Still owed on the edge afterwards. Non-zero only when the debtor ran out of collateral —
+    /// in which case it is now insolvent, and anyone may liquidate it.
+    pub residual: u64,
+}

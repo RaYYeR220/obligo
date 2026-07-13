@@ -7,6 +7,7 @@ pub mod post_offer;
 pub mod redeem;
 pub mod register_merchant;
 pub mod set_terms;
+pub mod settle;
 pub mod withdraw_collateral;
 
 pub use cancel_offer::*;
@@ -18,4 +19,5 @@ pub use post_offer::*;
 pub use redeem::*;
 pub use register_merchant::*;
 pub use set_terms::*;
+pub use settle::*;
 pub use withdraw_collateral::*;

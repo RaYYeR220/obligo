@@ -109,4 +109,12 @@ pub mod obligo {
     pub fn redeem(ctx: Context<Redeem>, points: u64) -> Result<()> {
         instructions::redeem::handler(ctx, points)
     }
+
+    /// Net two merchants' mutual debt and move only the difference. Permissionless: it makes the
+    /// debtor healthier and the creditor wealthier and takes nothing from anyone, so there is
+    /// nobody whose permission it could sensibly need — and a settlement only the creditor could
+    /// trigger would be a settlement the creditor could sit on.
+    pub fn settle(ctx: Context<Settle>) -> Result<()> {
+        instructions::settle::handler(ctx)
+    }
 }

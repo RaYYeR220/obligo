@@ -54,6 +54,8 @@ pub const E_OFFER_EXHAUSTED: u32 = 6013;
 pub const E_ISSUER_DEFAULTED: u32 = 6014;
 pub const E_POINTS_EXPIRED: u32 = 6015;
 pub const E_INSUFFICIENT_POINTS: u32 = 6016;
+pub const E_NOTHING_TO_SETTLE: u32 = 6017;
+pub const E_INVALID_CYCLE: u32 = 6018;
 
 /// Anchor's own constraint failures.
 pub const E_CONSTRAINT_HAS_ONE: u32 = 2001;
@@ -640,6 +642,80 @@ impl Env {
         self.send_meta(&[ix], &[&customer])
     }
 
+    /// Put `usdc` of debt on the `debtor -> creditor` edge, the only way the protocol allows one
+    /// to appear: the debtor issues points, the creditor bids for them at face, and a customer
+    /// spends them. Nothing here is test surgery — settlement and cycle clearing are handed a debt
+    /// graph that was built the way a real one would be.
+    pub fn owe(&mut self, debtor: &MerchantHandle, creditor: &MerchantHandle, usdc: u64) {
+        let per_point = self.merchant_state(debtor).usdc_per_point;
+        assert_eq!(usdc % per_point, 0, "{usdc} is not a whole number of points");
+        let points = usdc / per_point;
+
+        let customer = Keypair::new();
+        self.issue(debtor, &customer.pubkey(), points).expect("issue");
+
+        // Face for face: the acceptance auction is priced elsewhere. Here the only number that
+        // matters is the claim, and the claim is always 100%.
+        let expires_at = self.now() + 30 * 86_400;
+        self.post_offer(creditor, debtor, 10_000, usdc, expires_at)
+            .expect("post_offer");
+        self.redeem(debtor, creditor, &customer, points)
+            .expect("redeem");
+    }
+
+    /// Somebody with no stake in any of this, and enough SOL to send a transaction.
+    pub fn stranger(&mut self) -> Keypair {
+        let kp = Keypair::new();
+        self.svm.airdrop(&kp.pubkey(), 1_000_000_000_000).unwrap();
+        kp
+    }
+
+    // ---- settlement ---------------------------------------------------------------------
+
+    pub fn settle(
+        &mut self,
+        a: &MerchantHandle,
+        b: &MerchantHandle,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let payer = self.payer.insecure_clone();
+        self.settle_as(&payer, a, b)
+    }
+
+    /// Settlement cranked by an arbitrary key. There is no privileged caller — the point of the
+    /// separate helper is to be able to hand the crank to a complete stranger and watch it work.
+    pub fn settle_as(
+        &mut self,
+        cranker: &Keypair,
+        a: &MerchantHandle,
+        b: &MerchantHandle,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::Settle {
+                cranker: cranker.pubkey(),
+                protocol: protocol_address(),
+                merchant_a: a.merchant,
+                merchant_b: b.merchant,
+                vault_a: a.vault,
+                vault_b: b.vault,
+                edge_ab: obligation_address(&a.merchant, &b.merchant),
+                edge_ba: obligation_address(&b.merchant, &a.merchant),
+                usdc_mint: self.usdc_mint,
+                token_program: TOKEN_PROGRAM_ID,
+                system_program: SYSTEM_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::Settle {}.data(),
+        };
+
+        if cranker.pubkey() == self.payer.pubkey() {
+            self.send_meta(&[ix], &[])
+        } else {
+            let signer = cranker.insecure_clone();
+            self.send_meta(&[ix], &[&signer])
+        }
+    }
+
     // ---- reads --------------------------------------------------------------------------
 
     pub fn protocol_state(&self) -> Protocol {
@@ -683,6 +759,18 @@ impl Env {
             .get_account(&obligation_address(&debtor.merchant, &creditor.merchant))
             .expect("obligation exists");
         Obligation::try_deserialize(&mut raw.data.as_slice()).unwrap()
+    }
+
+    /// What the debtor owes the creditor, with "no edge at all" reading as the zero it means.
+    pub fn owed(&self, debtor: &MerchantHandle, creditor: &MerchantHandle) -> u64 {
+        let address = obligation_address(&debtor.merchant, &creditor.merchant);
+        if !self.account_exists(&address) {
+            return 0;
+        }
+        let raw = self.svm.get_account(&address).unwrap();
+        Obligation::try_deserialize(&mut raw.data.as_slice())
+            .unwrap()
+            .amount
     }
 
     /// The hook's permit for a source account: `None` if it was never granted.
@@ -802,12 +890,12 @@ pub fn associated_token_address(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
     )
 }
 
-/// Pull the `Redeemed` event back out of the transaction's logs.
+/// Pull an event back out of the transaction's logs.
 ///
 /// `emit!` writes the event as base64 under `Program data:`; there is nowhere else it goes, so a
-/// test that wants to assert on what a redemption *told the world* has to read it from there.
+/// test that wants to assert on what an instruction *told the world* has to read it from there.
 #[track_caller]
-pub fn decode_redeemed(meta: &TransactionMetadata) -> Redeemed {
+pub fn decode_event<T: Discriminator + AnchorDeserialize>(meta: &TransactionMetadata) -> T {
     for line in &meta.logs {
         let Some(encoded) = line.strip_prefix("Program data: ") else {
             continue;
@@ -815,11 +903,16 @@ pub fn decode_redeemed(meta: &TransactionMetadata) -> Redeemed {
         let Ok(bytes) = base64_decode(encoded.trim()) else {
             continue;
         };
-        if bytes.len() > 8 && bytes[..8] == *Redeemed::DISCRIMINATOR {
-            return Redeemed::deserialize(&mut &bytes[8..]).expect("Redeemed");
+        if bytes.len() > 8 && bytes[..8] == *T::DISCRIMINATOR {
+            return T::deserialize(&mut &bytes[8..]).expect("event");
         }
     }
-    panic!("no Redeemed event in the logs:\n{:#?}", meta.logs);
+    panic!("event not found in the logs:\n{:#?}", meta.logs);
+}
+
+#[track_caller]
+pub fn decode_redeemed(meta: &TransactionMetadata) -> Redeemed {
+    decode_event::<Redeemed>(meta)
 }
 
 fn base64_decode(s: &str) -> Result<Vec<u8>, ()> {

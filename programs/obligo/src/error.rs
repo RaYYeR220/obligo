@@ -36,4 +36,8 @@ pub enum ObligoError {
     PointsExpired,
     #[msg("the customer does not hold that many of this merchant's points")]
     InsufficientPoints,
+    #[msg("these two merchants owe each other nothing")]
+    NothingToSettle,
+    #[msg("the accounts given do not describe a real cycle in the obligation graph")]
+    InvalidCycle,
 }
