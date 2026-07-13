@@ -9,14 +9,17 @@
 use anchor_lang::solana_program::program_pack::Pack;
 use anchor_lang::{
     prelude::{Clock, Pubkey},
-    AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas,
+    AccountDeserialize, AccountSerialize, AnchorDeserialize, Discriminator, InstructionData,
+    ToAccountMetas,
 };
 use anchor_spl::token::spl_token;
 use anchor_spl::token_2022::spl_token_2022::{
     extension::StateWithExtensions, state::Mint as MintState,
 };
+use litesvm::types::TransactionMetadata;
 use litesvm::LiteSVM;
-use obligo::state::{AcceptanceOffer, Merchant, PointBatch, Protocol};
+use obligo::events::Redeemed;
+use obligo::state::{AcceptanceOffer, Merchant, MerchantStatus, Obligation, PointBatch, Protocol};
 use solana_instruction::{error::InstructionError, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -47,10 +50,15 @@ pub const E_MINT_ALREADY_EXISTS: u32 = 6009;
 pub const E_INVALID_RATE: u32 = 6010;
 pub const E_OFFER_EXPIRED: u32 = 6011;
 pub const E_SELF_OFFER: u32 = 6012;
+pub const E_OFFER_EXHAUSTED: u32 = 6013;
+pub const E_ISSUER_DEFAULTED: u32 = 6014;
+pub const E_POINTS_EXPIRED: u32 = 6015;
+pub const E_INSUFFICIENT_POINTS: u32 = 6016;
 
 /// Anchor's own constraint failures.
 pub const E_CONSTRAINT_HAS_ONE: u32 = 2001;
 pub const E_CONSTRAINT_SEEDS: u32 = 2006;
+pub const E_ACCOUNT_NOT_INITIALIZED: u32 = 3012;
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -124,6 +132,15 @@ impl Env {
         ixs: &[Instruction],
         extra_signers: &[&Keypair],
     ) -> Result<(), TransactionError> {
+        self.send_meta(ixs, extra_signers).map(|_| ())
+    }
+
+    /// The same, but hands back the transaction's logs so a test can read what was emitted.
+    pub fn send_meta(
+        &mut self,
+        ixs: &[Instruction],
+        extra_signers: &[&Keypair],
+    ) -> Result<TransactionMetadata, TransactionError> {
         let mut signers: Vec<&Keypair> = vec![&self.payer];
         signers.extend_from_slice(extra_signers);
 
@@ -134,10 +151,12 @@ impl Env {
         let message = Message::new(ixs, Some(&self.payer.pubkey()));
         let tx = Transaction::new(&signers, message, self.svm.latest_blockhash());
 
-        self.svm
-            .send_transaction(tx)
-            .map(|_| ())
-            .map_err(|failed| failed.err)
+        self.svm.send_transaction(tx).map_err(|failed| {
+            if std::env::var("OBLIGO_LOGS").is_ok() {
+                eprintln!("{:#?}", failed.meta.logs);
+            }
+            failed.err
+        })
     }
 
     // ---- USDC ---------------------------------------------------------------------------
@@ -300,6 +319,22 @@ impl Env {
         let mut state = Merchant::try_deserialize(&mut raw.data.as_slice()).unwrap();
         state.points_outstanding = points;
         state.total_issued = points;
+
+        let mut buf = Vec::new();
+        state.try_serialize(&mut buf).unwrap();
+        raw.data[..buf.len()].copy_from_slice(&buf);
+
+        self.svm.set_account(m.merchant, raw).unwrap();
+    }
+
+    /// Test surgery: mark a merchant defaulted without running a liquidation.
+    ///
+    /// Liquidation is Task 9. Redemption already has to refuse a defaulted issuer's points today,
+    /// and that refusal is worth testing before the instruction that sets the flag exists.
+    pub fn set_status(&mut self, m: &MerchantHandle, status: MerchantStatus) {
+        let mut raw = self.svm.get_account(&m.merchant).unwrap();
+        let mut state = Merchant::try_deserialize(&mut raw.data.as_slice()).unwrap();
+        state.status = status;
 
         let mut buf = Vec::new();
         state.try_serialize(&mut buf).unwrap();
@@ -554,6 +589,57 @@ impl Env {
         self.send(&[ix], &[&signer])
     }
 
+    // ---- redemption ---------------------------------------------------------------------
+
+    /// The customer redeems `points` of `issuer`'s points at `acceptor`.
+    ///
+    /// Only the customer signs for the points: the offer *is* the acceptor's consent, posted on
+    /// chain and budgeted on chain, which is what makes it an auction rather than an advert.
+    pub fn redeem(
+        &mut self,
+        issuer: &MerchantHandle,
+        acceptor: &MerchantHandle,
+        customer: &Keypair,
+        points: u64,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let customer_points = associated_token_address(&customer.pubkey(), &issuer.points_mint);
+
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::Redeem {
+                payer: self.payer.pubkey(),
+                customer: customer.pubkey(),
+                protocol: protocol_address(),
+                issuer: issuer.merchant,
+                acceptor: acceptor.merchant,
+                offer: offer_address(&acceptor.merchant, &issuer.merchant),
+                obligation: obligation_address(&issuer.merchant, &acceptor.merchant),
+                points_mint: issuer.points_mint,
+                customer_points,
+                redemption_escrow: associated_token_address(
+                    &issuer.merchant,
+                    &issuer.points_mint,
+                ),
+                batch: batch_address(&issuer.merchant, &customer.pubkey()),
+                core_authority: core_authority(),
+                permit: permit_address(&customer_points),
+                extra_account_meta_list: eaml_address(&issuer.points_mint),
+                hook_program: obligo_hook::ID,
+                token_program: TOKEN_2022_ID,
+                associated_token_program: ATA_PROGRAM_ID,
+                system_program: SYSTEM_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::Redeem { points }.data(),
+        };
+
+        let customer = customer.insecure_clone();
+        // No compute-budget instruction: a redemption drives four CPIs — grant the permit, transfer
+        // through the hook, fire the hook, burn — and still lands inside the 200k a transaction is
+        // given by default. Worth keeping it that way; a till should not have to think about it.
+        self.send_meta(&[ix], &[&customer])
+    }
+
     // ---- reads --------------------------------------------------------------------------
 
     pub fn protocol_state(&self) -> Protocol {
@@ -585,6 +671,24 @@ impl Env {
     /// `None` while no offer has been posted, and again once one is cancelled.
     pub fn offer_is_live(&self, acceptor: &MerchantHandle, issuer: &MerchantHandle) -> bool {
         self.account_exists(&offer_address(&acceptor.merchant, &issuer.merchant))
+    }
+
+    pub fn obligation_state(
+        &self,
+        debtor: &MerchantHandle,
+        creditor: &MerchantHandle,
+    ) -> Obligation {
+        let raw = self
+            .svm
+            .get_account(&obligation_address(&debtor.merchant, &creditor.merchant))
+            .expect("obligation exists");
+        Obligation::try_deserialize(&mut raw.data.as_slice()).unwrap()
+    }
+
+    /// The hook's permit for a source account: `None` if it was never granted.
+    pub fn permit_state(&self, source: &Pubkey) -> Option<obligo_hook::Permit> {
+        let raw = self.svm.get_account(&permit_address(source))?;
+        obligo_hook::Permit::try_deserialize(&mut raw.data.as_slice()).ok()
     }
 
     /// Collateral over what the books require, in bps. `u64::MAX` when nothing is required.
@@ -674,6 +778,14 @@ pub fn offer_address(acceptor: &Pubkey, issuer: &Pubkey) -> Pubkey {
     .0
 }
 
+pub fn obligation_address(debtor: &Pubkey, creditor: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[obligo::OBLIGATION_SEED, debtor.as_ref(), creditor.as_ref()],
+        &obligo::ID,
+    )
+    .0
+}
+
 pub fn eaml_address(mint: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[b"extra-account-metas", mint.as_ref()], &obligo_hook::ID).0
 }
@@ -688,6 +800,44 @@ pub fn associated_token_address(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
         mint,
         &TOKEN_2022_ID,
     )
+}
+
+/// Pull the `Redeemed` event back out of the transaction's logs.
+///
+/// `emit!` writes the event as base64 under `Program data:`; there is nowhere else it goes, so a
+/// test that wants to assert on what a redemption *told the world* has to read it from there.
+#[track_caller]
+pub fn decode_redeemed(meta: &TransactionMetadata) -> Redeemed {
+    for line in &meta.logs {
+        let Some(encoded) = line.strip_prefix("Program data: ") else {
+            continue;
+        };
+        let Ok(bytes) = base64_decode(encoded.trim()) else {
+            continue;
+        };
+        if bytes.len() > 8 && bytes[..8] == *Redeemed::DISCRIMINATOR {
+            return Redeemed::deserialize(&mut &bytes[8..]).expect("Redeemed");
+        }
+    }
+    panic!("no Redeemed event in the logs:\n{:#?}", meta.logs);
+}
+
+fn base64_decode(s: &str) -> Result<Vec<u8>, ()> {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut out = Vec::with_capacity(s.len() / 4 * 3);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in s.bytes().filter(|c| *c != b'=') {
+        let value = ALPHABET.iter().position(|a| *a == c).ok_or(())? as u32;
+        acc = (acc << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Ok(out)
 }
 
 #[track_caller]

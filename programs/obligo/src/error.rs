@@ -28,4 +28,12 @@ pub enum ObligoError {
     OfferExpired,
     #[msg("a merchant cannot post an acceptance offer against its own points")]
     SelfOffer,
+    #[msg("the redemption would exceed the acceptor's remaining budget for this issuer")]
+    OfferExhausted,
+    #[msg("the issuer has defaulted and its points can no longer be redeemed")]
+    IssuerDefaulted,
+    #[msg("these points are past the issuer's time to live")]
+    PointsExpired,
+    #[msg("the customer does not hold that many of this merchant's points")]
+    InsufficientPoints,
 }

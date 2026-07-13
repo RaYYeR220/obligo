@@ -102,4 +102,11 @@ pub mod obligo {
     pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
         instructions::cancel_offer::handler(ctx)
     }
+
+    /// A customer spends one merchant's points at another. The points move through the hook and
+    /// are burned; the liability behind them becomes a debt between the two merchants; no USDC
+    /// moves, and the issuer's health falls. That last clause is the protocol, not a side effect.
+    pub fn redeem(ctx: Context<Redeem>, points: u64) -> Result<()> {
+        instructions::redeem::handler(ctx, points)
+    }
 }

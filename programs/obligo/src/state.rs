@@ -98,3 +98,19 @@ pub struct AcceptanceOffer {
     pub expires_at: i64,
     pub bump: u8,
 }
+
+/// One directed edge of the debt graph: what `debtor` owes `creditor`, in USDC micro.
+///
+/// Deliberately flat. Settlement nets two of these against each other, and cycle clearing walks a
+/// ring of them and decrements every one by the smallest — so an edge has to be re-derivable from
+/// nothing but the pair it connects, with a bump already in hand. `debtor` and `creditor` are held
+/// here, rather than inferred from the account's address, so a crank handed a ring of raw accounts
+/// can rebuild every seed and prove the ring is real before it touches a single number.
+#[account]
+#[derive(InitSpace)]
+pub struct Obligation {
+    pub debtor: Pubkey,
+    pub creditor: Pubkey,
+    pub amount: u64,
+    pub bump: u8,
+}
