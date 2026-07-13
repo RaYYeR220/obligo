@@ -279,6 +279,31 @@ fn an_account_of_the_wrong_type_cannot_stand_in_for_a_merchant() {
     assert_custom_error(err, E_ACCOUNT_DISCRIMINATOR_MISMATCH);
 }
 
+/// A merchant account has to be canonical in its own right, not merely by association with edges
+/// that happen to name it. Each merchant in the ring is re-derived from its stored `authority` and
+/// `bump`, exactly as every edge is — so an account whose bump no longer produces its own address is
+/// rejected, even though it still sits at that address and every edge still points at it.
+///
+/// Corrupting the stored bump is the cleanest probe: the old code never read it, so before this
+/// check the ring would have cleared regardless; now it cannot derive, so it is not one of ours.
+#[test]
+fn a_merchant_account_that_does_not_re_derive_is_rejected() {
+    let mut env = Env::new();
+    let (aurora, belmont, cordoba) = ring_of_three(&mut env);
+
+    env.corrupt_merchant_bump(&belmont, 0);
+
+    let err = env
+        .clear_cycle(&[&aurora, &belmont, &cordoba])
+        .expect_err("a merchant that does not re-derive is not canonical");
+    assert_custom_error(err, E_INVALID_CYCLE);
+
+    // Nothing was cleared.
+    assert_eq!(env.owed(&aurora, &belmont), 10 * DOLLAR);
+    assert_eq!(env.owed(&belmont, &cordoba), 7 * DOLLAR);
+    assert_eq!(env.owed(&cordoba, &aurora), 12 * DOLLAR);
+}
+
 /// A ring that does not close — the last edge simply does not exist — has nothing to clear.
 ///
 /// An edge that was never created is an address the system program owns and nobody has written to,

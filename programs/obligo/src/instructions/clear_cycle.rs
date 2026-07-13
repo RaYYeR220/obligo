@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::{MAX_CYCLE_LEN, MIN_CYCLE_LEN, OBLIGATION_SEED};
+use crate::constants::{MAX_CYCLE_LEN, MERCHANT_SEED, MIN_CYCLE_LEN, OBLIGATION_SEED};
 use crate::error::ObligoError;
 use crate::events::CycleCleared;
 use crate::state::{Merchant, Obligation};
@@ -90,7 +90,21 @@ pub(crate) fn handler<'info>(ctx: Context<'info, ClearCycle<'info>>, cycle_len: 
         require_keys_eq!(*info.owner, crate::ID, ObligoError::InvalidCycle);
         // Checks the discriminator too — an `Obligation` is also one of ours, and read at raw byte
         // offsets as a `Merchant` it would land somewhere plausible.
-        merchants.push(Account::try_from(info)?);
+        let merchant: Account<Merchant> = Account::try_from(info)?;
+
+        // And re-derive the merchant PDA from its own stored `authority` + `bump`, the same way each
+        // edge below is re-derived from the pair it connects. Without this, a merchant's canonicality
+        // would rest only transitively — on the assumption that every writer of these fields used the
+        // canonical seeds. Proving it here makes the guarantee local to the one instruction that
+        // reaches into sixteen accounts and reduces what people owe.
+        let derived = Pubkey::create_program_address(
+            &[MERCHANT_SEED, merchant.authority.as_ref(), &[merchant.bump]],
+            &crate::ID,
+        )
+        .map_err(|_| error!(ObligoError::InvalidCycle))?;
+        require_keys_eq!(info.key(), derived, ObligoError::InvalidCycle);
+
+        merchants.push(merchant);
     }
 
     let mut edges: Vec<Account<Obligation>> = Vec::with_capacity(k);
