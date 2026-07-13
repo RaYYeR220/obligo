@@ -1,0 +1,42 @@
+[package]
+name = "obligo_hook"
+version = "0.1.0"
+description = "Token-2022 transfer hook that gates loyalty point movement behind a clearing-house permit"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "obligo_hook"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
+anchor-spl = "1.1.2"
+spl-transfer-hook-interface = "2.1.0"
+spl-tlv-account-resolution = "0.11.1"
+spl-discriminator = "0.5.1"
+
+[dev-dependencies]
+litesvm = "0.10.0"
+solana-account = "3.0.0"
+solana-instruction = "3.0.0"
+solana-keypair = "3.0.1"
+solana-message = "3.0.1"
+solana-pubkey = "3.0.0"
+solana-signer = "3.0.0"
+solana-system-interface = { version = "2.0.0", features = ["bincode"] }
+solana-transaction = "3.0.2"
+solana-transaction-error = "3.0.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
