@@ -1,9 +1,11 @@
+pub mod create_points_mint;
 pub mod deposit_collateral;
 pub mod init_protocol;
 pub mod register_merchant;
 pub mod set_terms;
 pub mod withdraw_collateral;
 
+pub use create_points_mint::*;
 pub use deposit_collateral::*;
 pub use init_protocol::*;
 pub use register_merchant::*;

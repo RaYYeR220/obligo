@@ -20,4 +20,6 @@ pub enum ObligoError {
     TermsLocked,
     #[msg("token metadata is too long")]
     MetadataTooLong,
+    #[msg("the merchant already has a points mint")]
+    MintAlreadyExists,
 }

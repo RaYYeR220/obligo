@@ -68,4 +68,15 @@ pub mod obligo {
     pub fn withdraw_collateral(ctx: Context<WithdrawCollateral>, amount: u64) -> Result<()> {
         instructions::withdraw_collateral::handler(ctx, amount)
     }
+
+    /// The merchant's Token-2022 points mint, hooked and un-repointable, with its
+    /// `ExtraAccountMetaList` created in the same breath.
+    pub fn create_points_mint(
+        ctx: Context<CreatePointsMint>,
+        name: String,
+        symbol: String,
+        uri: String,
+    ) -> Result<()> {
+        instructions::create_points_mint::handler(ctx, name, symbol, uri)
+    }
 }

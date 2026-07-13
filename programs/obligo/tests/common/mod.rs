@@ -375,6 +375,56 @@ impl Env {
         self.send(&[ix], &[&signer])
     }
 
+    // ---- points -------------------------------------------------------------------------
+
+    pub fn create_points_mint(
+        &mut self,
+        m: &MerchantHandle,
+        name: &str,
+        symbol: &str,
+        uri: &str,
+    ) -> Result<(), TransactionError> {
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::CreatePointsMint {
+                authority: m.authority.pubkey(),
+                protocol: protocol_address(),
+                merchant: m.merchant,
+                points_mint: m.points_mint,
+                extra_account_meta_list: eaml_address(&m.points_mint),
+                hook_program: obligo_hook::ID,
+                token_program: TOKEN_2022_ID,
+                system_program: SYSTEM_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::CreatePointsMint {
+                name: name.to_string(),
+                symbol: symbol.to_string(),
+                uri: uri.to_string(),
+            }
+            .data(),
+        };
+        let signer = m.authority.insecure_clone();
+        self.send(&[ix], &[&signer])
+    }
+
+    /// A merchant with a live points mint and collateral already posted.
+    pub fn issuer(
+        &mut self,
+        name: &str,
+        usdc_per_point: u64,
+        reserve_bps: u16,
+        collateral: u64,
+    ) -> MerchantHandle {
+        let m = self.register_merchant(name, usdc_per_point, reserve_bps, 86_400);
+        self.create_points_mint(&m, name, "PTS", "https://example.invalid/points.json")
+            .expect("create_points_mint");
+        if collateral > 0 {
+            self.deposit(&m, collateral).expect("deposit");
+        }
+        m
+    }
+
     // ---- reads --------------------------------------------------------------------------
 
     pub fn protocol_state(&self) -> Protocol {
