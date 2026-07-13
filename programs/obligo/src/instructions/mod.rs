@@ -1,15 +1,19 @@
+pub mod cancel_offer;
 pub mod create_points_mint;
 pub mod deposit_collateral;
 pub mod init_protocol;
 pub mod issue_points;
+pub mod post_offer;
 pub mod register_merchant;
 pub mod set_terms;
 pub mod withdraw_collateral;
 
+pub use cancel_offer::*;
 pub use create_points_mint::*;
 pub use deposit_collateral::*;
 pub use init_protocol::*;
 pub use issue_points::*;
+pub use post_offer::*;
 pub use register_merchant::*;
 pub use set_terms::*;
 pub use withdraw_collateral::*;

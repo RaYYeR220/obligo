@@ -22,4 +22,10 @@ pub enum ObligoError {
     MetadataTooLong,
     #[msg("the merchant already has a points mint")]
     MintAlreadyExists,
+    #[msg("an acceptance rate must be between 1 and 20000 bps")]
+    InvalidRate,
+    #[msg("the acceptance offer has expired")]
+    OfferExpired,
+    #[msg("a merchant cannot post an acceptance offer against its own points")]
+    SelfOffer,
 }

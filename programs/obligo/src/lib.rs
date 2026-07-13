@@ -16,6 +16,7 @@
 
 pub mod constants;
 pub mod error;
+pub mod events;
 pub mod hook_cpi;
 pub mod instructions;
 pub mod math;
@@ -24,6 +25,7 @@ pub mod state;
 use anchor_lang::prelude::*;
 
 pub use constants::*;
+pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
@@ -83,5 +85,21 @@ pub mod obligo {
     /// Mint points to a customer. Refused the moment the merchant can no longer back them.
     pub fn issue_points(ctx: Context<IssuePoints>, amount: u64) -> Result<()> {
         instructions::issue_points::handler(ctx, amount)
+    }
+
+    /// Bid to honour another merchant's points, at a rate and up to a budget of the bidder's
+    /// choosing. Needs no permission from the issuer, and cannot be withdrawn by it.
+    pub fn post_offer(
+        ctx: Context<PostOffer>,
+        rate_bps: u16,
+        capacity: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::post_offer::handler(ctx, rate_bps, capacity, expires_at)
+    }
+
+    /// Withdraw that bid. Only the acceptor may; the rent goes back to it.
+    pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
+        instructions::cancel_offer::handler(ctx)
     }
 }

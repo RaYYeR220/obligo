@@ -16,7 +16,7 @@ use anchor_spl::token_2022::spl_token_2022::{
     extension::StateWithExtensions, state::Mint as MintState,
 };
 use litesvm::LiteSVM;
-use obligo::state::{Merchant, PointBatch, Protocol};
+use obligo::state::{AcceptanceOffer, Merchant, PointBatch, Protocol};
 use solana_instruction::{error::InstructionError, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -42,6 +42,11 @@ pub const E_MERCHANT_DEFAULTED: u32 = 6004;
 pub const E_NAME_TOO_LONG: u32 = 6005;
 pub const E_INSUFFICIENT_COLLATERAL: u32 = 6006;
 pub const E_TERMS_LOCKED: u32 = 6007;
+pub const E_METADATA_TOO_LONG: u32 = 6008;
+pub const E_MINT_ALREADY_EXISTS: u32 = 6009;
+pub const E_INVALID_RATE: u32 = 6010;
+pub const E_OFFER_EXPIRED: u32 = 6011;
+pub const E_SELF_OFFER: u32 = 6012;
 
 /// Anchor's own constraint failures.
 pub const E_CONSTRAINT_HAS_ONE: u32 = 2001;
@@ -480,6 +485,75 @@ impl Env {
         self.svm.set_sysvar(&clock);
     }
 
+    pub fn now(&self) -> i64 {
+        self.svm.get_sysvar::<Clock>().unix_timestamp
+    }
+
+    // ---- offers -------------------------------------------------------------------------
+
+    pub fn post_offer(
+        &mut self,
+        acceptor: &MerchantHandle,
+        issuer: &MerchantHandle,
+        rate_bps: u16,
+        capacity: u64,
+        expires_at: i64,
+    ) -> Result<(), TransactionError> {
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::PostOffer {
+                authority: acceptor.authority.pubkey(),
+                acceptor: acceptor.merchant,
+                issuer: issuer.merchant,
+                offer: offer_address(&acceptor.merchant, &issuer.merchant),
+                system_program: SYSTEM_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::PostOffer {
+                rate_bps,
+                capacity,
+                expires_at,
+            }
+            .data(),
+        };
+        let signer = acceptor.authority.insecure_clone();
+        self.send(&[ix], &[&signer])
+    }
+
+    pub fn cancel_offer(
+        &mut self,
+        acceptor: &MerchantHandle,
+        issuer: &MerchantHandle,
+    ) -> Result<(), TransactionError> {
+        self.cancel_offer_as(
+            &acceptor.authority.insecure_clone(),
+            acceptor.merchant,
+            issuer.merchant,
+        )
+    }
+
+    /// Cancellation signed by an arbitrary key, naming an arbitrary acceptor — so a test can aim
+    /// it at somebody else's offer.
+    pub fn cancel_offer_as(
+        &mut self,
+        signer: &Keypair,
+        acceptor: Pubkey,
+        issuer: Pubkey,
+    ) -> Result<(), TransactionError> {
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::CancelOffer {
+                authority: signer.pubkey(),
+                acceptor,
+                offer: offer_address(&acceptor, &issuer),
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::CancelOffer {}.data(),
+        };
+        let signer = signer.insecure_clone();
+        self.send(&[ix], &[&signer])
+    }
+
     // ---- reads --------------------------------------------------------------------------
 
     pub fn protocol_state(&self) -> Protocol {
@@ -498,6 +572,43 @@ impl Env {
             .get_account(&batch_address(&m.merchant, customer))
             .unwrap();
         PointBatch::try_deserialize(&mut raw.data.as_slice()).unwrap()
+    }
+
+    pub fn offer_state(&self, acceptor: &MerchantHandle, issuer: &MerchantHandle) -> AcceptanceOffer {
+        let raw = self
+            .svm
+            .get_account(&offer_address(&acceptor.merchant, &issuer.merchant))
+            .expect("offer exists");
+        AcceptanceOffer::try_deserialize(&mut raw.data.as_slice()).unwrap()
+    }
+
+    /// `None` while no offer has been posted, and again once one is cancelled.
+    pub fn offer_is_live(&self, acceptor: &MerchantHandle, issuer: &MerchantHandle) -> bool {
+        self.account_exists(&offer_address(&acceptor.merchant, &issuer.merchant))
+    }
+
+    /// Collateral over what the books require, in bps. `u64::MAX` when nothing is required.
+    pub fn health_bps(&self, m: &MerchantHandle) -> u64 {
+        let s = self.merchant_state(m);
+        let required = obligo::math::required_collateral(
+            s.obligations_out,
+            s.points_outstanding,
+            s.usdc_per_point,
+            s.reserve_bps,
+        )
+        .unwrap();
+        obligo::math::health_bps(s.collateral, required)
+    }
+
+    /// A closed account still answers, with nothing in it. Both readings mean "gone".
+    pub fn account_exists(&self, address: &Pubkey) -> bool {
+        self.svm
+            .get_account(address)
+            .is_some_and(|a| a.lamports > 0 && !a.data.is_empty())
+    }
+
+    pub fn lamports(&self, address: &Pubkey) -> u64 {
+        self.svm.get_account(address).map_or(0, |a| a.lamports)
     }
 
     pub fn points_account(&self, m: &MerchantHandle, customer: &Pubkey) -> Pubkey {
@@ -550,6 +661,14 @@ pub fn points_mint_address(merchant: &Pubkey) -> Pubkey {
 pub fn batch_address(merchant: &Pubkey, customer: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(
         &[obligo::BATCH_SEED, merchant.as_ref(), customer.as_ref()],
+        &obligo::ID,
+    )
+    .0
+}
+
+pub fn offer_address(acceptor: &Pubkey, issuer: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[obligo::OFFER_SEED, acceptor.as_ref(), issuer.as_ref()],
         &obligo::ID,
     )
     .0

@@ -73,3 +73,28 @@ pub struct PointBatch {
     pub issued_at: i64,
     pub bump: u8,
 }
+
+/// One merchant's standing bid to honour another merchant's points.
+///
+/// The auction is the interesting half of this protocol. An acceptor that wants footfall bids
+/// *above* face and eats the difference as customer acquisition; an acceptor that doubts the
+/// issuer's credit bids *below* face. Either way it claims face — the full 100% — from the
+/// issuer, and `rate_bps` prices only the goods it hands the customer.
+#[account]
+#[derive(InitSpace)]
+pub struct AcceptanceOffer {
+    /// The merchant honouring the points.
+    pub acceptor: Pubkey,
+    /// The merchant whose points are honoured.
+    pub issuer: Pubkey,
+    /// Goods given, as a fraction of face. Above 10_000 the acceptor is buying footfall; below
+    /// it, discounting the issuer's credit.
+    pub rate_bps: u16,
+    /// USDC micro of *face value* this offer will absorb. The acceptor's acquisition budget,
+    /// and the only line in an offer that the chain enforces against the acceptor's own till.
+    pub capacity: u64,
+    /// Face value redeemed against this offer so far.
+    pub consumed: u64,
+    pub expires_at: i64,
+    pub bump: u8,
+}
