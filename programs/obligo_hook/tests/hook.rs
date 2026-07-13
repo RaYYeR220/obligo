@@ -31,6 +31,7 @@ const DECIMALS: u8 = 0;
 const E_MOVEMENT_NOT_AUTHORIZED: u32 = 6000;
 const E_AMOUNT_EXCEEDS_PERMIT: u32 = 6001;
 const E_NOT_TRANSFERRING: u32 = 6002;
+const E_BAD_PERMIT_KIND: u32 = 6003;
 
 // Anchor's own constraint failures.
 const E_CONSTRAINT_SIGNER: u32 = 2002;
@@ -382,6 +383,29 @@ fn execute_invoked_outside_a_transfer_is_rejected() {
         10,
         "a forged Execute must not consume the permit"
     );
+}
+
+/// Only `Redeem` (0) and `Expire` (1) are real kinds; there is no longer a `Gift` at 1 or anything
+/// at 2. The `kind <= PERMIT_KIND_MAX` guard has to still reject a byte past the top, or a stale
+/// value could be granted and desync the books from the token balances it is supposed to mirror.
+#[test]
+fn a_permit_kind_past_the_maximum_is_rejected() {
+    let mut env = Env::new();
+
+    // 2 is one past `Expire`. Even with a real signature from the core's PDA, it must not be granted.
+    let err = env
+        .grant(obligo_hook::PERMIT_KIND_EXPIRE + 1, 10)
+        .expect_err("there is no permit kind above Expire");
+    assert_custom_error(err, E_BAD_PERMIT_KIND);
+    assert!(
+        env.permit().is_none(),
+        "no permit was created for a bad kind"
+    );
+
+    // And the two that are real are still accepted.
+    env.grant(obligo_hook::PERMIT_KIND_REDEEM, 10)
+        .expect("Redeem is a real kind");
+    assert_eq!(env.permit().expect("granted").kind, PERMIT_KIND_REDEEM);
 }
 
 #[test]

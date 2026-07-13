@@ -244,6 +244,14 @@ pub(crate) fn handler(ctx: Context<Redeem>, points: u64) -> Result<()> {
         &[],
     )?;
 
+    // Defence in depth: we granted a permit for exactly `points` and moved exactly `points`, so the
+    // hook must have spent it to nothing. Assert it, so an over-grant could never leave a live bearer
+    // authorization behind for some later instruction to pick up.
+    require!(
+        hook_cpi::permit_remaining(&ctx.accounts.permit.to_account_info())? == 0,
+        ObligoError::PermitNotConsumed
+    );
+
     let issuer_authority = ctx.accounts.issuer.authority;
     let issuer_bump = ctx.accounts.issuer.bump;
     let issuer_seeds: &[&[u8]] = &[MERCHANT_SEED, issuer_authority.as_ref(), &[issuer_bump]];

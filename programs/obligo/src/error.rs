@@ -52,4 +52,6 @@ pub enum ObligoError {
     NotDefaulted,
     #[msg("these points have not reached the issuer's time to live")]
     NotYetExpired,
+    #[msg("the movement did not consume the whole permit, leaving a live bearer authorization")]
+    PermitNotConsumed,
 }

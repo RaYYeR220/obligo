@@ -35,10 +35,10 @@ pub const PERMIT_SEED: &[u8] = b"permit";
 pub const CORE_AUTHORITY_SEED: &[u8] = b"authority";
 pub const EXTRA_ACCOUNT_METAS_SEED: &[u8] = b"extra-account-metas";
 
-/// Why a movement was authorised. The core decides; the hook records.
+/// Why a movement was authorised. The core decides; the hook records. Numbered densely from zero so
+/// `kind <= PERMIT_KIND_MAX` leaves no valid-looking hole a future desync could slip through.
 pub const PERMIT_KIND_REDEEM: u8 = 0;
-pub const PERMIT_KIND_GIFT: u8 = 1;
-pub const PERMIT_KIND_EXPIRE: u8 = 2;
+pub const PERMIT_KIND_EXPIRE: u8 = 1;
 pub const PERMIT_KIND_MAX: u8 = PERMIT_KIND_EXPIRE;
 
 #[program]
@@ -177,7 +177,7 @@ fn require_transferring(account: &InterfaceAccount<TokenAccount>) -> Result<()> 
 pub struct Permit {
     /// The token account allowed to send. Bound so a permit cannot be replayed elsewhere.
     pub source: Pubkey,
-    /// 0 = redeem, 1 = gift, 2 = expire.
+    /// 0 = redeem, 1 = expire.
     pub kind: u8,
     /// Points still authorised to move. Decremented by the hook, never refilled by it.
     pub amount: u64,

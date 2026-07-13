@@ -16,6 +16,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{instruction::Instruction, program::invoke_signed};
 use anchor_spl::token_2022::spl_token_2022;
 
+use crate::error::ObligoError;
+
 /// `sha256("global:initialize_extra_account_meta_list")[..8]`
 pub const INITIALIZE_EXTRA_ACCOUNT_META_LIST: [u8; 8] = [92, 197, 174, 197, 41, 124, 19, 3];
 
@@ -26,10 +28,10 @@ pub const EXTRA_ACCOUNT_METAS_SEED: &[u8] = b"extra-account-metas";
 pub const PERMIT_SEED: &[u8] = b"permit";
 
 /// Why the clearing house is letting these points move. The hook records it; nothing else in the
-/// protocol may put a point in motion at all.
+/// protocol may put a point in motion at all. Kept byte-for-byte in step with the hook's own values
+/// (pinned by `tests/hook_abi.rs`); numbered densely from zero, with no gap for a stale kind to hide in.
 pub const PERMIT_KIND_REDEEM: u8 = 0;
-pub const PERMIT_KIND_GIFT: u8 = 1;
-pub const PERMIT_KIND_EXPIRE: u8 = 2;
+pub const PERMIT_KIND_EXPIRE: u8 = 1;
 
 /// Publish the account list Token-2022 hands to the hook on every transfer of this mint.
 ///
@@ -122,6 +124,27 @@ pub fn grant_permit<'info>(
         signer_seeds,
     )
     .map_err(Into::into)
+}
+
+/// The points still authorised to move on a permit, read straight from the hook-owned account.
+///
+/// A permit binds a source and an amount, but not a destination or a count of movements — its whole
+/// safety rests on the core granting exactly what it moves, in one atomic instruction, so that
+/// nothing is left over to replay. This reads back that invariant instead of merely trusting it: the
+/// core grants a permit for exactly the points it is about to move and moves exactly that many, so
+/// after the movement this must be zero. A non-zero result means the core over-granted and left a
+/// live bearer authorization behind — a bug in the core, caught here rather than spent later.
+///
+/// The hook's `Permit` is `8 disc + 32 source + 1 kind + 8 amount (LE) + 1 bump`; the amount is the
+/// eight bytes at offset 41. That layout is pinned against the hook crate in `tests/hook_abi.rs`, so
+/// a change to it over there turns a test red here rather than quietly moving the bytes we read.
+pub fn permit_remaining(permit: &AccountInfo) -> Result<u64> {
+    let data = permit.try_borrow_data()?;
+    let bytes: [u8; 8] = data
+        .get(41..49)
+        .and_then(|s| s.try_into().ok())
+        .ok_or(ObligoError::PermitNotConsumed)?;
+    Ok(u64::from_le_bytes(bytes))
 }
 
 /// Move points, with the hook in the loop.

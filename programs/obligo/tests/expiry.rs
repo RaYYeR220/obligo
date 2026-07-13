@@ -122,7 +122,7 @@ fn expiry_moves_the_points_through_the_hook_like_everything_else() {
 
     let permit = env.permit_state(&source).expect("the expiry granted one");
     assert_eq!(permit.source, source, "bound to this account alone");
-    assert_eq!(permit.kind, 2, "kind = Expire");
+    assert_eq!(permit.kind, 1, "kind = Expire");
     assert_eq!(
         permit.amount, 0,
         "the hook ran, and consumed every point it was given"

@@ -183,6 +183,14 @@ pub(crate) fn handler(ctx: Context<ExpirePoints>) -> Result<()> {
         &[merchant_seeds],
     )?;
 
+    // Defence in depth: the permit was granted for exactly `points` and exactly `points` moved, so
+    // the hook must have drained it to zero. A leftover would be a live bearer authorization the core
+    // never meant to issue — fail loudly rather than leave it behind.
+    require!(
+        hook_cpi::permit_remaining(&ctx.accounts.permit.to_account_info())? == 0,
+        ObligoError::PermitNotConsumed
+    );
+
     burn(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
