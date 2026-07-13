@@ -48,12 +48,16 @@ pub struct Settled {
     /// The merchant the graph says owes more. Not whichever one the caller named first.
     pub debtor: Pubkey,
     pub creditor: Pubkey,
-    /// Cancelled against the counter-claim. No liquidity required for this part, ever.
+    /// Cancelled against the counter-claim. No liquidity required for this part, ever, so it is
+    /// applied whatever the debtor's solvency.
     pub offset: u64,
-    /// USDC moved, debtor's vault to creditor's. `min(net, collateral)`.
+    /// USDC moved, debtor's vault to creditor's. `min(net, collateral)` while the debtor is solvent,
+    /// and `0` once it is not: an insolvent merchant's vault is an estate that belongs to all of its
+    /// creditors pro rata, and `liquidate` — not whoever cranks `settle` first — is what distributes it.
     pub paid: u64,
-    /// Still owed on the edge afterwards. Non-zero only when the debtor ran out of collateral —
-    /// in which case it is now insolvent, and anyone may liquidate it.
+    /// Still owed on the edge afterwards. Non-zero whenever the debtor could not cover the net in
+    /// cash — because it ran its collateral to zero, or because it was already insolvent and paid
+    /// nothing. Either way it is now liquidatable.
     pub residual: u64,
 }
 

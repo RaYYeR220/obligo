@@ -6,6 +6,7 @@ use anchor_spl::token_interface::{
 use crate::constants::{MERCHANT_SEED, OBLIGATION_SEED, PROTOCOL_SEED};
 use crate::error::ObligoError;
 use crate::events::Settled;
+use crate::math::is_solvent;
 use crate::state::{Merchant, MerchantStatus, Obligation, Protocol};
 
 /// Boxed: two merchants, two vaults, two edges and a mint is enough state to matter, and the SBF
@@ -122,12 +123,24 @@ pub(crate) fn handler(ctx: Context<Settle>) -> Result<()> {
     } else {
         (b_key, a_key)
     };
-    let (status, collateral, debtor_authority, debtor_bump) = if a_owes_more {
+    let (status, collateral, obligations_out, debtor_authority, debtor_bump) = if a_owes_more {
         let m = &ctx.accounts.merchant_a;
-        (m.status, m.collateral, m.authority, m.bump)
+        (
+            m.status,
+            m.collateral,
+            m.obligations_out,
+            m.authority,
+            m.bump,
+        )
     } else {
         let m = &ctx.accounts.merchant_b;
-        (m.status, m.collateral, m.authority, m.bump)
+        (
+            m.status,
+            m.collateral,
+            m.obligations_out,
+            m.authority,
+            m.bump,
+        )
     };
 
     // A defaulted merchant's collateral is an estate, and it belongs to all of its creditors in
@@ -140,7 +153,21 @@ pub(crate) fn handler(ctx: Context<Settle>) -> Result<()> {
         ObligoError::MerchantDefaulted
     );
 
-    let paid = net.min(collateral);
+    // The same estate reasoning applies before the `Defaulted` flag is ever set. A merchant becomes
+    // insolvent the instant a redemption pushes `obligations_out` past its collateral, and it stays
+    // `Active` until somebody troubles to `liquidate` it. In that window paying one creditor out of
+    // the vault is the very preference we refuse a defaulted merchant — and the identical action
+    // through `withdraw_collateral` is already gated on solvency, so leaving it open here is just a
+    // side door onto the same estate. So: settle the cash leg only while the debtor can cover every
+    // debt it owes. The `offset` below is symmetric debt cancelling symmetric debt and moves no
+    // money, so it is always safe and is applied regardless.
+    let paid = if is_solvent(collateral, obligations_out) {
+        // solvent ⇒ collateral ≥ obligations_out ≥ net, so the full net still leaves every other
+        // creditor covered.
+        net.min(collateral)
+    } else {
+        0
+    };
     let cleared = offset.checked_add(paid).ok_or(ObligoError::Overflow)?;
 
     if paid > 0 {
