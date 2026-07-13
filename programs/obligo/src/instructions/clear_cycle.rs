@@ -54,10 +54,7 @@ pub struct ClearCycle<'info> {
 /// Drop check 3 and the attack is immediate and total: present the ring `[A, B, C]`, hand over a
 /// genuine, program-owned obligation account belonging to some entirely unrelated pair as the edge
 /// that closes it, and A's debt is written down against a stranger's.
-pub(crate) fn handler<'info>(
-    ctx: Context<'info, ClearCycle<'info>>,
-    cycle_len: u8,
-) -> Result<()> {
+pub(crate) fn handler<'info>(ctx: Context<'info, ClearCycle<'info>>, cycle_len: u8) -> Result<()> {
     let k = cycle_len as usize;
 
     // Two is a bilateral debt, and `settle` handles it — in cash. Letting a "cycle" of two through

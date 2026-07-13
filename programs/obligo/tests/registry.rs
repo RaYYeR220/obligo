@@ -109,7 +109,9 @@ fn withdrawal_below_the_reserve_is_refused() {
     assert_eq!(env.merchant_state(&m).collateral, 3 * DOLLAR);
 
     // One more micro-unit is not.
-    let err = env.withdraw(&m, 1).expect_err("the reserve is not the merchant's money");
+    let err = env
+        .withdraw(&m, 1)
+        .expect_err("the reserve is not the merchant's money");
     assert_custom_error(err, E_RESERVE_BREACHED);
 
     assert_eq!(env.merchant_state(&m).collateral, 3 * DOLLAR);
@@ -159,7 +161,8 @@ fn a_merchant_cannot_reprice_points_that_are_already_in_the_wild() {
     env.deposit(&m, 3 * DOLLAR).expect("deposit");
 
     // Free to re-price its own risk while nothing is outstanding.
-    env.set_terms(&m, 20_000, 5000, 172_800).expect("no points yet");
+    env.set_terms(&m, 20_000, 5000, 172_800)
+        .expect("no points yet");
     assert_eq!(env.merchant_state(&m).usdc_per_point, 20_000);
 
     env.set_terms(&m, 10_000, 3000, 86_400).expect("back again");
@@ -172,7 +175,8 @@ fn a_merchant_cannot_reprice_points_that_are_already_in_the_wild() {
     assert_custom_error(err, E_TERMS_LOCKED);
 
     // Raising the reserve is always allowed: it only ever makes the merchant safer.
-    env.set_terms(&m, 10_000, 3000, 86_400).expect("unchanged terms");
+    env.set_terms(&m, 10_000, 3000, 86_400)
+        .expect("unchanged terms");
 
     // Raising it beyond what the merchant can back is not — the invariant is re-checked.
     let err = env

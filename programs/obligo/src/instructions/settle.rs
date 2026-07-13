@@ -202,7 +202,10 @@ pub(crate) fn handler(ctx: Context<Settle>) -> Result<()> {
             .obligations_in
             .checked_sub(offset)
             .ok_or(ObligoError::Overflow)?;
-        a.collateral = a.collateral.checked_sub(paid).ok_or(ObligoError::Overflow)?;
+        a.collateral = a
+            .collateral
+            .checked_sub(paid)
+            .ok_or(ObligoError::Overflow)?;
 
         let b = &mut ctx.accounts.merchant_b;
         b.obligations_in = b
@@ -213,7 +216,10 @@ pub(crate) fn handler(ctx: Context<Settle>) -> Result<()> {
             .obligations_out
             .checked_sub(offset)
             .ok_or(ObligoError::Overflow)?;
-        b.collateral = b.collateral.checked_add(paid).ok_or(ObligoError::Overflow)?;
+        b.collateral = b
+            .collateral
+            .checked_add(paid)
+            .ok_or(ObligoError::Overflow)?;
 
         residual
     } else {
@@ -239,7 +245,10 @@ pub(crate) fn handler(ctx: Context<Settle>) -> Result<()> {
             .obligations_in
             .checked_sub(offset)
             .ok_or(ObligoError::Overflow)?;
-        b.collateral = b.collateral.checked_sub(paid).ok_or(ObligoError::Overflow)?;
+        b.collateral = b
+            .collateral
+            .checked_sub(paid)
+            .ok_or(ObligoError::Overflow)?;
 
         let a = &mut ctx.accounts.merchant_a;
         a.obligations_in = a
@@ -250,7 +259,10 @@ pub(crate) fn handler(ctx: Context<Settle>) -> Result<()> {
             .obligations_out
             .checked_sub(offset)
             .ok_or(ObligoError::Overflow)?;
-        a.collateral = a.collateral.checked_add(paid).ok_or(ObligoError::Overflow)?;
+        a.collateral = a
+            .collateral
+            .checked_add(paid)
+            .ok_or(ObligoError::Overflow)?;
 
         residual
     };

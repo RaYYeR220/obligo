@@ -91,7 +91,10 @@ fn a_ring_of_debt_is_extinguished_without_moving_a_cent() {
             7 * DOLLAR,
             "and is owed $7.00 less"
         );
-        assert_eq!(before.collateral, after.collateral, "and paid nothing for it");
+        assert_eq!(
+            before.collateral, after.collateral,
+            "and paid nothing for it"
+        );
     }
 
     // The money. There is none. Not "the balances agree" — the vault accounts are byte-for-byte

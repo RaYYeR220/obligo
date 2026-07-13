@@ -24,7 +24,8 @@ fn the_reserve_invariant_is_a_hard_boundary() {
     let m = env.issuer("Cafe Aurora", 10_000, 3000, 3 * DOLLAR);
     let customer = Keypair::new().pubkey();
 
-    env.issue(&m, &customer, 1000).expect("1000 points is exactly backed");
+    env.issue(&m, &customer, 1000)
+        .expect("1000 points is exactly backed");
 
     let state = env.merchant_state(&m);
     assert_eq!(state.points_outstanding, 1000);
@@ -66,8 +67,11 @@ fn a_fully_reserved_merchant_can_issue_only_what_it_holds() {
     let m = env.issuer("Bodega Belmont", 10_000, 10_000, 3 * DOLLAR);
     let customer = Keypair::new().pubkey();
 
-    env.issue(&m, &customer, 300).expect("300 points = $3.00 face = $3.00 reserve");
-    let err = env.issue(&m, &customer, 1).expect_err("nothing left to back it");
+    env.issue(&m, &customer, 300)
+        .expect("300 points = $3.00 face = $3.00 reserve");
+    let err = env
+        .issue(&m, &customer, 1)
+        .expect_err("nothing left to back it");
     assert_custom_error(err, E_RESERVE_BREACHED);
 }
 
@@ -89,7 +93,10 @@ fn minting_does_not_go_through_the_hook() {
     );
 
     // The supply the token program believes in, and the liability we booked, are the same number.
-    assert_eq!(env.points_supply(&m), env.merchant_state(&m).points_outstanding);
+    assert_eq!(
+        env.points_supply(&m),
+        env.merchant_state(&m).points_outstanding
+    );
 }
 
 /// The customer's account is created by the associated-token program, not by us, and the hook

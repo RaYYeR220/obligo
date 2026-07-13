@@ -279,7 +279,10 @@ fn core_authority() -> Pubkey {
 fn assert_custom_error(err: TransactionError, expected: u32) {
     match err {
         TransactionError::InstructionError(_, InstructionError::Custom(code)) => {
-            assert_eq!(code, expected, "expected custom error {expected}, got {code}");
+            assert_eq!(
+                code, expected,
+                "expected custom error {expected}, got {code}"
+            );
         }
         other => panic!("expected custom error {expected}, got {other:?}"),
     }

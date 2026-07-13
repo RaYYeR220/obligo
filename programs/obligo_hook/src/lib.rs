@@ -129,7 +129,11 @@ pub mod obligo_hook {
             &crate::ID,
         )
         .map_err(|_| error!(HookError::MovementNotAuthorized))?;
-        require_keys_eq!(expected, permit_info.key(), HookError::MovementNotAuthorized);
+        require_keys_eq!(
+            expected,
+            permit_info.key(),
+            HookError::MovementNotAuthorized
+        );
         require_keys_eq!(permit.source, source, HookError::MovementNotAuthorized);
 
         require!(permit.amount > 0, HookError::MovementNotAuthorized);
@@ -160,7 +164,10 @@ fn require_transferring(account: &InterfaceAccount<TokenAccount>) -> Result<()> 
         .get_extension::<TransferHookAccount>()
         .map_err(|_| error!(HookError::NotTransferring))?;
 
-    require!(bool::from(extension.transferring), HookError::NotTransferring);
+    require!(
+        bool::from(extension.transferring),
+        HookError::NotTransferring
+    );
     Ok(())
 }
 

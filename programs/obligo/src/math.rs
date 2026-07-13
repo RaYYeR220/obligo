@@ -62,7 +62,10 @@ mod tests {
     #[test]
     fn reserve_is_fractional() {
         // 1000 points at $0.01 = $10.00 face; 30% reserve = $3.00; no debt yet.
-        assert_eq!(required_collateral(0, 1000, 10_000, 3000).unwrap(), 3_000_000);
+        assert_eq!(
+            required_collateral(0, 1000, 10_000, 3000).unwrap(),
+            3_000_000
+        );
     }
 
     #[test]
@@ -76,7 +79,10 @@ mod tests {
 
     #[test]
     fn health_falls_when_points_are_redeemed() {
-        let before = health_bps(3_000_000, required_collateral(0, 1000, 10_000, 3000).unwrap());
+        let before = health_bps(
+            3_000_000,
+            required_collateral(0, 1000, 10_000, 3000).unwrap(),
+        );
         let after = health_bps(
             3_000_000,
             required_collateral(10_000_000, 0, 10_000, 3000).unwrap(),
