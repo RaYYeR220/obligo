@@ -240,6 +240,8 @@ pub(crate) fn handler(ctx: Context<Redeem>, points: u64) -> Result<()> {
         &ctx.accounts.permit.to_account_info(),
         points,
         ctx.accounts.points_mint.decimals,
+        // No PDA signs this one: the customer signed the transaction, and these are their points.
+        &[],
     )?;
 
     let issuer_authority = ctx.accounts.issuer.authority;

@@ -15,6 +15,7 @@ mod common;
 use common::*;
 use obligo::events::Settled;
 use obligo::state::MerchantStatus;
+use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 /// Two merchants, $20 of collateral each, and a mutual debt: Aurora owes Belmont $10 and Belmont
@@ -77,7 +78,11 @@ fn eighteen_dollars_of_debt_are_settled_by_moving_two() {
     assert_eq!(event.debtor, aurora.merchant);
     assert_eq!(event.creditor, belmont.merchant);
     assert_eq!(event.offset, 8 * DOLLAR, "cancelled without money");
-    assert_eq!(event.paid, 2 * DOLLAR, "and this is all the money there was");
+    assert_eq!(
+        event.paid,
+        2 * DOLLAR,
+        "and this is all the money there was"
+    );
     assert_eq!(event.residual, 0);
 }
 
@@ -174,7 +179,11 @@ fn a_debtor_that_cannot_cover_the_net_pays_what_it_has_and_stays_on_the_hook() {
 
     let a = env.merchant_state(&aurora);
     assert_eq!(a.collateral, 0);
-    assert_eq!(a.obligations_out, 2 * DOLLAR, "the residual stays on the edge");
+    assert_eq!(
+        a.obligations_out,
+        2 * DOLLAR,
+        "the residual stays on the edge"
+    );
     assert_eq!(a.obligations_in, 0);
     assert_eq!(env.owed(&aurora, &belmont), 2 * DOLLAR);
     assert_eq!(env.owed(&belmont, &aurora), 0);
@@ -215,32 +224,84 @@ fn settling_a_pair_that_owes_nothing_is_refused() {
 /// first creditor to crank it would take the whole vault up to its own claim and everyone behind
 /// it would find the cupboard bare. So the debtor's default closes this door.
 ///
-/// Note which merchant the guard is read from: the one the graph says is paying. Belmont, the
-/// creditor, may be in whatever state it likes — money arriving in a defaulted merchant's vault
-/// only helps the people it owes.
+/// The scene is built the way one actually happens. Aurora runs a 25% reserve, prints $12.00 of
+/// face against $3.00 of collateral, and both halves come home: $6.00 to Belmont, $6.00 to Cordoba.
+/// Belmont has also taken $2.00 of Aurora's points the other way round, so the pair has a genuine
+/// mutual debt for `settle` to bite on. Cordoba liquidates. Now watch what Belmont can and cannot do.
 #[test]
 fn a_defaulted_debtor_cannot_be_settled_ahead_of_its_other_creditors() {
     let mut env = Env::new();
-    let (aurora, belmont) = mutual_debt(&mut env);
+    let aurora = env.issuer("Cafe Aurora", 10_000, 2500, 3 * DOLLAR);
+    let belmont = env.issuer("Bodega Belmont", 10_000, 3000, 20 * DOLLAR);
+    let cordoba = env.issuer("Cordoba Books", 10_000, 3000, 20 * DOLLAR);
 
-    env.set_status(&aurora, MerchantStatus::Defaulted);
+    // Belmont owes Aurora $2.00, honestly earned: Aurora honoured $2.00 of Belmont's points.
+    env.owe(&belmont, &aurora, 2 * DOLLAR);
 
+    // Aurora prints $12.00 of face against $3.00 — all of it before any of it comes home, because
+    // a redemption raises the bar for the next issuance and that is the invariant doing its job.
+    let c1 = Keypair::new();
+    let c2 = Keypair::new();
+    env.issue(&aurora, &c1.pubkey(), 600).expect("issue");
+    env.issue(&aurora, &c2.pubkey(), 600).expect("issue");
+
+    let expires_at = env.now() + 30 * 86_400;
+    env.post_offer(&belmont, &aurora, 10_000, 6 * DOLLAR, expires_at)
+        .expect("post_offer");
+    env.post_offer(&cordoba, &aurora, 10_000, 6 * DOLLAR, expires_at)
+        .expect("post_offer");
+    env.redeem(&aurora, &belmont, &c1, 600).expect("redeem");
+    env.redeem(&aurora, &cordoba, &c2, 600).expect("redeem");
+
+    assert_eq!(env.merchant_state(&aurora).obligations_out, 12 * DOLLAR);
+    assert_eq!(env.merchant_state(&aurora).collateral, 3 * DOLLAR);
+    assert!(!env.is_solvent(&aurora), "$3.00 against $12.00 owed");
+
+    // Cordoba gets its half of the estate: $6.00 of $12.00 in claims, so half of the $3.00.
+    env.liquidate(&aurora, &cordoba).expect("liquidate");
+    assert_eq!(
+        env.merchant_state(&aurora).status,
+        MerchantStatus::Defaulted
+    );
+    assert_eq!(env.merchant_state(&aurora).collateral, 1_500_000);
+
+    // Belmont now tries to take the rest through the settlement crank instead of the estate. Its
+    // claim is $6.00, Aurora's counter-claim is $2.00, so Aurora is the net debtor — and Aurora's
+    // remaining $1.50 is not Belmont's to net against. The door is shut.
     let err = env
         .settle(&aurora, &belmont)
         .expect_err("Aurora's estate is not first-come-first-served");
     assert_custom_error(err, E_MERCHANT_DEFAULTED);
 
-    assert_eq!(env.token_balance(&aurora.vault), 20 * DOLLAR);
-    assert_eq!(env.token_balance(&belmont.vault), 20 * DOLLAR);
-    assert_eq!(env.owed(&aurora, &belmont), 10 * DOLLAR);
+    assert_eq!(env.token_balance(&aurora.vault), 1_500_000);
+    assert_eq!(env.owed(&aurora, &belmont), 6 * DOLLAR);
+    assert_eq!(env.owed(&belmont, &aurora), 2 * DOLLAR);
 
-    // Flip it: Belmont, the *creditor*, defaults. Aurora still owes it, and still pays.
-    env.set_status(&aurora, MerchantStatus::Active);
-    env.set_status(&belmont, MerchantStatus::Defaulted);
+    // Through the estate, Belmont gets exactly what its claim is worth: it is now the only claim
+    // left, so it takes everything that is left. $6.00 of claim, $1.50 recovered.
+    env.liquidate(&aurora, &belmont).expect("liquidate");
+    assert_eq!(env.merchant_state(&aurora).collateral, 0);
+    assert_eq!(env.merchant_state(&aurora).obligations_out, 0);
+    assert_eq!(env.owed(&aurora, &belmont), 0);
 
+    // Cordoba's $1.50 plus Belmont's $1.50 is the whole estate, to the cent. Neither creditor was
+    // preferred and nothing was invented.
+    assert_eq!(env.token_balance(&cordoba.vault), 20 * DOLLAR + 1_500_000);
+    assert_eq!(env.token_balance(&belmont.vault), 20 * DOLLAR + 1_500_000);
+
+    // And now the other half of the rule: the guard is read from the merchant the *graph* says is
+    // paying, not from whoever is defaulted. Belmont still owes Aurora $2.00, and Aurora being
+    // defaulted is no reason for Belmont to keep it — money arriving in a defaulted merchant's vault
+    // only helps the people it owes.
     env.settle(&aurora, &belmont)
         .expect("paying a defaulted creditor is paying its creditors");
-    assert_eq!(env.token_balance(&belmont.vault), 22 * DOLLAR);
+    assert_eq!(env.token_balance(&aurora.vault), 2 * DOLLAR);
+    assert_eq!(env.owed(&belmont, &aurora), 0);
+    assert_eq!(
+        env.merchant_state(&aurora).status,
+        MerchantStatus::Defaulted,
+        "being paid is not the same as being forgiven"
+    );
 }
 
 /// Settlement pays down real debt, so it raises the debtor's health — and it never touches the

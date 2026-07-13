@@ -42,4 +42,14 @@ pub enum ObligoError {
     InvalidCycle,
     #[msg("a cycle whose smallest edge is zero clears nothing")]
     EmptyCycle,
+    #[msg("the merchant still holds enough collateral to cover every debt it has incurred")]
+    NotLiquidatable,
+    #[msg("this creditor holds no claim against this debtor")]
+    NoClaim,
+    #[msg("the merchant cannot yet cover what it owes")]
+    StillInsolvent,
+    #[msg("the merchant has not defaulted")]
+    NotDefaulted,
+    #[msg("these points have not reached the issuer's time to live")]
+    NotYetExpired,
 }

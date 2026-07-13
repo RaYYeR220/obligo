@@ -55,6 +55,11 @@ pub struct Merchant {
     pub total_expired: u64,
 
     pub status: MerchantStatus,
+    /// How many times this merchant's estate has been distributed to its creditors. Reinstatement
+    /// clears the `status`; it does not clear this. A merchant that has stiffed a network once is
+    /// entitled to trade again, and its counterparties are entitled to know.
+    pub defaults: u32,
+
     pub bump: u8,
     pub vault_bump: u8,
     pub mint_bump: u8,

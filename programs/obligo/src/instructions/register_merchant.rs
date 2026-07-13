@@ -73,6 +73,7 @@ pub(crate) fn handler(
         total_redeemed: 0,
         total_expired: 0,
         status: MerchantStatus::Active,
+        defaults: 0,
         bump: ctx.bumps.merchant,
         vault_bump: ctx.bumps.vault,
         mint_bump: 0,

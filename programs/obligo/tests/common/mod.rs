@@ -19,7 +19,7 @@ use anchor_spl::token_2022::spl_token_2022::{
 use litesvm::types::TransactionMetadata;
 use litesvm::LiteSVM;
 use obligo::events::Redeemed;
-use obligo::state::{AcceptanceOffer, Merchant, MerchantStatus, Obligation, PointBatch, Protocol};
+use obligo::state::{AcceptanceOffer, Merchant, Obligation, PointBatch, Protocol};
 use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -72,6 +72,11 @@ pub const E_INSUFFICIENT_POINTS: u32 = 6016;
 pub const E_NOTHING_TO_SETTLE: u32 = 6017;
 pub const E_INVALID_CYCLE: u32 = 6018;
 pub const E_EMPTY_CYCLE: u32 = 6019;
+pub const E_NOT_LIQUIDATABLE: u32 = 6020;
+pub const E_NO_CLAIM: u32 = 6021;
+pub const E_STILL_INSOLVENT: u32 = 6022;
+pub const E_NOT_DEFAULTED: u32 = 6023;
+pub const E_NOT_YET_EXPIRED: u32 = 6024;
 
 /// Anchor's own constraint failures.
 pub const E_CONSTRAINT_HAS_ONE: u32 = 2001;
@@ -90,8 +95,12 @@ fn workspace_root() -> PathBuf {
 
 fn read_program(relative: &str) -> Vec<u8> {
     let path = workspace_root().join(relative);
-    std::fs::read(&path)
-        .unwrap_or_else(|_| panic!("missing {}\nbuild it first: cargo-build-sbf", path.display()))
+    std::fs::read(&path).unwrap_or_else(|_| {
+        panic!(
+            "missing {}\nbuild it first: cargo-build-sbf",
+            path.display()
+        )
+    })
 }
 
 /// A registered merchant and everything a test needs to act as it.
@@ -346,22 +355,6 @@ impl Env {
         self.svm.set_account(m.merchant, raw).unwrap();
     }
 
-    /// Test surgery: mark a merchant defaulted without running a liquidation.
-    ///
-    /// Liquidation is Task 9. Redemption already has to refuse a defaulted issuer's points today,
-    /// and that refusal is worth testing before the instruction that sets the flag exists.
-    pub fn set_status(&mut self, m: &MerchantHandle, status: MerchantStatus) {
-        let mut raw = self.svm.get_account(&m.merchant).unwrap();
-        let mut state = Merchant::try_deserialize(&mut raw.data.as_slice()).unwrap();
-        state.status = status;
-
-        let mut buf = Vec::new();
-        state.try_serialize(&mut buf).unwrap();
-        raw.data[..buf.len()].copy_from_slice(&buf);
-
-        self.svm.set_account(m.merchant, raw).unwrap();
-    }
-
     // ---- collateral ---------------------------------------------------------------------
 
     pub fn deposit(&mut self, m: &MerchantHandle, amount: u64) -> Result<(), TransactionError> {
@@ -383,7 +376,13 @@ impl Env {
     }
 
     pub fn withdraw(&mut self, m: &MerchantHandle, amount: u64) -> Result<(), TransactionError> {
-        self.withdraw_as(&m.authority.insecure_clone(), m.merchant, m.vault, m.usdc, amount)
+        self.withdraw_as(
+            &m.authority.insecure_clone(),
+            m.merchant,
+            m.vault,
+            m.usdc,
+            amount,
+        )
     }
 
     /// Withdraw signed by an arbitrary key, naming an arbitrary merchant. The point of the
@@ -635,10 +634,7 @@ impl Env {
                 obligation: obligation_address(&issuer.merchant, &acceptor.merchant),
                 points_mint: issuer.points_mint,
                 customer_points,
-                redemption_escrow: associated_token_address(
-                    &issuer.merchant,
-                    &issuer.points_mint,
-                ),
+                redemption_escrow: associated_token_address(&issuer.merchant, &issuer.points_mint),
                 batch: batch_address(&issuer.merchant, &customer.pubkey()),
                 core_authority: core_authority(),
                 permit: permit_address(&customer_points),
@@ -665,11 +661,16 @@ impl Env {
     /// graph that was built the way a real one would be.
     pub fn owe(&mut self, debtor: &MerchantHandle, creditor: &MerchantHandle, usdc: u64) {
         let per_point = self.merchant_state(debtor).usdc_per_point;
-        assert_eq!(usdc % per_point, 0, "{usdc} is not a whole number of points");
+        assert_eq!(
+            usdc % per_point,
+            0,
+            "{usdc} is not a whole number of points"
+        );
         let points = usdc / per_point;
 
         let customer = Keypair::new();
-        self.issue(debtor, &customer.pubkey(), points).expect("issue");
+        self.issue(debtor, &customer.pubkey(), points)
+            .expect("issue");
 
         // Face for face: the acceptance auction is priced elsewhere. Here the only number that
         // matters is the claim, and the claim is always 100%.
@@ -779,6 +780,134 @@ impl Env {
         self.send_meta(&ixs, &[])
     }
 
+    // ---- liquidation --------------------------------------------------------------------
+
+    /// Pay `creditor` its pro-rata share of `debtor`'s estate. Cranked by the payer, who has no
+    /// stake in either merchant — which is the point.
+    pub fn liquidate(
+        &mut self,
+        debtor: &MerchantHandle,
+        creditor: &MerchantHandle,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let payer = self.payer.insecure_clone();
+        self.liquidate_as(&payer, debtor, creditor)
+    }
+
+    pub fn liquidate_as(
+        &mut self,
+        cranker: &Keypair,
+        debtor: &MerchantHandle,
+        creditor: &MerchantHandle,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::Liquidate {
+                cranker: cranker.pubkey(),
+                protocol: protocol_address(),
+                debtor: debtor.merchant,
+                creditor: creditor.merchant,
+                debtor_vault: debtor.vault,
+                creditor_vault: creditor.vault,
+                edge: obligation_address(&debtor.merchant, &creditor.merchant),
+                usdc_mint: self.usdc_mint,
+                token_program: TOKEN_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::Liquidate {}.data(),
+        };
+
+        if cranker.pubkey() == self.payer.pubkey() {
+            self.send_meta(&[ix], &[])
+        } else {
+            let signer = cranker.insecure_clone();
+            self.send_meta(&[ix], &[&signer])
+        }
+    }
+
+    pub fn reinstate(
+        &mut self,
+        m: &MerchantHandle,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let payer = self.payer.insecure_clone();
+        self.reinstate_as(&payer, m)
+    }
+
+    /// Reinstatement cranked by an arbitrary key — including a creditor that got stranded behind a
+    /// merchant that was defaulted and solvent at the same time.
+    pub fn reinstate_as(
+        &mut self,
+        cranker: &Keypair,
+        m: &MerchantHandle,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::Reinstate {
+                cranker: cranker.pubkey(),
+                merchant: m.merchant,
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::Reinstate {}.data(),
+        };
+
+        if cranker.pubkey() == self.payer.pubkey() {
+            self.send_meta(&[ix], &[])
+        } else {
+            let signer = cranker.insecure_clone();
+            self.send_meta(&[ix], &[&signer])
+        }
+    }
+
+    // ---- expiry -------------------------------------------------------------------------
+
+    /// Burn a customer's lapsed points. The customer does not sign — nobody does but the crank.
+    pub fn expire(
+        &mut self,
+        m: &MerchantHandle,
+        customer: &Pubkey,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let payer = self.payer.insecure_clone();
+        self.expire_as(&payer, m, customer)
+    }
+
+    pub fn expire_as(
+        &mut self,
+        cranker: &Keypair,
+        m: &MerchantHandle,
+        customer: &Pubkey,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let customer_points = associated_token_address(customer, &m.points_mint);
+
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts: obligo::accounts::ExpirePoints {
+                cranker: cranker.pubkey(),
+                protocol: protocol_address(),
+                merchant: m.merchant,
+                points_mint: m.points_mint,
+                customer: *customer,
+                customer_points,
+                redemption_escrow: associated_token_address(&m.merchant, &m.points_mint),
+                batch: batch_address(&m.merchant, customer),
+                core_authority: core_authority(),
+                permit: permit_address(&customer_points),
+                extra_account_meta_list: eaml_address(&m.points_mint),
+                hook_program: obligo_hook::ID,
+                token_program: TOKEN_2022_ID,
+                associated_token_program: ATA_PROGRAM_ID,
+                system_program: SYSTEM_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: obligo::instruction::ExpirePoints {}.data(),
+        };
+
+        if cranker.pubkey() == self.payer.pubkey() {
+            self.send_meta(&[ix], &[])
+        } else {
+            let signer = cranker.insecure_clone();
+            self.send_meta(&[ix], &[&signer])
+        }
+    }
+
     // ---- reads --------------------------------------------------------------------------
 
     pub fn protocol_state(&self) -> Protocol {
@@ -799,7 +928,11 @@ impl Env {
         PointBatch::try_deserialize(&mut raw.data.as_slice()).unwrap()
     }
 
-    pub fn offer_state(&self, acceptor: &MerchantHandle, issuer: &MerchantHandle) -> AcceptanceOffer {
+    pub fn offer_state(
+        &self,
+        acceptor: &MerchantHandle,
+        issuer: &MerchantHandle,
+    ) -> AcceptanceOffer {
         let raw = self
             .svm
             .get_account(&offer_address(&acceptor.merchant, &issuer.merchant))
@@ -888,6 +1021,44 @@ impl Env {
             .unwrap()
             .base
             .supply
+    }
+
+    /// The merchant's redemption escrow: the turnstile every point passes through on its way out of
+    /// circulation, by redemption or by expiry. Zero before every instruction and zero after.
+    pub fn escrow(&self, m: &MerchantHandle) -> Pubkey {
+        associated_token_address(&m.merchant, &m.points_mint)
+    }
+
+    pub fn escrow_balance(&self, m: &MerchantHandle) -> u64 {
+        let address = self.escrow(m);
+        if !self.account_exists(&address) {
+            return 0;
+        }
+        self.token_balance(&address)
+    }
+
+    /// Every USDC in existence in this environment. No instruction in the protocol may change it.
+    pub fn usdc_supply(&self) -> u64 {
+        let raw = self.svm.get_account(&self.usdc_mint).unwrap();
+        spl_token::state::Mint::unpack(&raw.data).unwrap().supply
+    }
+
+    /// Can the merchant pay the debts it has actually incurred? Below this line anyone may
+    /// liquidate it. Health may be far worse than this and still be perfectly fine.
+    pub fn is_solvent(&self, m: &MerchantHandle) -> bool {
+        let s = self.merchant_state(m);
+        obligo::math::is_solvent(s.collateral, s.obligations_out)
+    }
+
+    pub fn required_collateral(&self, m: &MerchantHandle) -> u64 {
+        let s = self.merchant_state(m);
+        obligo::math::required_collateral(
+            s.obligations_out,
+            s.points_outstanding,
+            s.usdc_per_point,
+            s.reserve_bps,
+        )
+        .unwrap()
     }
 
     /// Works for both token programs: `amount` is a u64 at offset 64 in either layout.
@@ -985,8 +1156,7 @@ pub fn decode_redeemed(meta: &TransactionMetadata) -> Redeemed {
 }
 
 fn base64_decode(s: &str) -> Result<Vec<u8>, ()> {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let mut out = Vec::with_capacity(s.len() / 4 * 3);
     let (mut acc, mut bits) = (0u32, 0u32);
@@ -1002,11 +1172,23 @@ fn base64_decode(s: &str) -> Result<Vec<u8>, ()> {
     Ok(out)
 }
 
+/// The same question, asked without consuming the error — for the property suite, which has to test
+/// a failure against several acceptable reasons.
+pub fn is_custom(err: &TransactionError, expected: u32) -> bool {
+    matches!(
+        err,
+        TransactionError::InstructionError(_, InstructionError::Custom(code)) if *code == expected
+    )
+}
+
 #[track_caller]
 pub fn assert_custom_error(err: TransactionError, expected: u32) {
     match err {
         TransactionError::InstructionError(_, InstructionError::Custom(code)) => {
-            assert_eq!(code, expected, "expected custom error {expected}, got {code}");
+            assert_eq!(
+                code, expected,
+                "expected custom error {expected}, got {code}"
+            );
         }
         other => panic!("expected custom error {expected}, got {other:?}"),
     }

@@ -121,10 +121,28 @@ pub mod obligo {
     /// Walk a ring of debt and cancel it. **Zero USDC moves.** The client finds the cycle off
     /// chain; the program proves it is real and clears it. This is the instruction the whole
     /// protocol is built to make possible.
-    pub fn clear_cycle<'info>(
-        ctx: Context<'info, ClearCycle<'info>>,
-        cycle_len: u8,
-    ) -> Result<()> {
+    pub fn clear_cycle<'info>(ctx: Context<'info, ClearCycle<'info>>, cycle_len: u8) -> Result<()> {
         instructions::clear_cycle::handler(ctx, cycle_len)
+    }
+
+    /// Distribute an insolvent issuer's estate to one of its creditors, pro rata, and mark it
+    /// defaulted. Permissionless: a liquidation the debtor could veto is not one, and a liquidation
+    /// only the creditor could call is a race between creditors over the same vault.
+    pub fn liquidate(ctx: Context<Liquidate>) -> Result<()> {
+        instructions::liquidate::handler(ctx)
+    }
+
+    /// A defaulted merchant that can cover its debts again is a merchant again. Permissionless,
+    /// because the merchant is not the only person who needs this door to open — a creditor of a
+    /// solvent-but-defaulted merchant can neither settle nor liquidate until somebody does.
+    pub fn reinstate(ctx: Context<Reinstate>) -> Result<()> {
+        instructions::reinstate::handler(ctx)
+    }
+
+    /// Burn a customer's lapsed points and free the reserve behind them. Permissionless, on a
+    /// deadline the merchant published itself. The points move through the hook under a permit like
+    /// every other point movement — the protocol does not get a private door into its own token.
+    pub fn expire_points(ctx: Context<ExpirePoints>) -> Result<()> {
+        instructions::expire_points::handler(ctx)
     }
 }

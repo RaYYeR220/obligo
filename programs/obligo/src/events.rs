@@ -70,3 +70,52 @@ pub struct CycleCleared {
     pub amount_cleared: u64,
     pub usdc_moved: u64,
 }
+
+/// One creditor's share of an insolvent issuer's estate.
+///
+/// `claim` and `paid` are both here because they are not the same number, and pretending otherwise
+/// is how a protocol lies about a default. The creditor's claim is discharged in full; what it
+/// actually recovers is its share of what is left, pro rata with everyone else's claim. The
+/// difference is `written_off`, and somebody really did lose it.
+#[event]
+pub struct Liquidated {
+    pub debtor: Pubkey,
+    pub creditor: Pubkey,
+    /// What the creditor was owed, and what this instruction discharges.
+    pub claim: u64,
+    /// USDC moved out of the estate: `claim * collateral / obligations_out`, rounded down.
+    pub paid: u64,
+    /// The part of the claim the estate could not cover. The loss this creditor underwrote when
+    /// it posted the offer, having read the issuer's health first.
+    pub written_off: u64,
+    /// What is left in the estate for the debtor's remaining creditors.
+    pub collateral_remaining: u64,
+    /// And what those creditors are still owed.
+    pub obligations_remaining: u64,
+}
+
+/// A defaulted merchant that can cover its debts again.
+#[event]
+pub struct Reinstated {
+    pub merchant: Pubkey,
+    pub collateral: u64,
+    pub obligations_out: u64,
+    /// Defaults on the record. Coming back does not take one off.
+    pub defaults: u32,
+}
+
+/// Points that were never spent.
+///
+/// Breakage is the oldest revenue line in retail and it is normally recognised in a back office,
+/// on a schedule the people holding the points never see. Here it is an instruction anybody may
+/// call, on a deadline the merchant published, and it is the moment the reserve behind those
+/// points stops being locked up. That is the honest version of the same accounting.
+#[event]
+pub struct Breakage {
+    pub merchant: Pubkey,
+    pub customer: Pubkey,
+    pub points: u64,
+    /// The liability the merchant is released from — and, at `reserve_bps` of it, the collateral
+    /// it may now withdraw.
+    pub face_value: u64,
+}

@@ -13,10 +13,7 @@
 //! rather than a dead protocol.
 
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{
-    instruction::Instruction,
-    program::{invoke, invoke_signed},
-};
+use anchor_lang::solana_program::{instruction::Instruction, program::invoke_signed};
 use anchor_spl::token_2022::spl_token_2022;
 
 /// `sha256("global:initialize_extra_account_meta_list")[..8]`
@@ -142,6 +139,12 @@ pub fn grant_permit<'info>(
 ///
 /// So we append them. Token-2022 matches them up by key, resolves the EAML, and invokes `Execute` —
 /// which is the moment the protocol's one hard rule is enforced: no permit, no movement.
+///
+/// `signer_seeds` is empty for a redemption, where the customer signs the outer transaction for
+/// their own points, and carries the merchant PDA's seeds for an expiry, where nobody signs for the
+/// customer at all and the merchant PDA moves the points as the mint's permanent delegate. The hook
+/// does not know or care which: it asks for a permit either way, and the permanent delegate has no
+/// more right to move a point without one than the customer does.
 #[allow(clippy::too_many_arguments)]
 pub fn transfer_points<'info>(
     token_program: &AccountInfo<'info>,
@@ -154,6 +157,7 @@ pub fn transfer_points<'info>(
     permit: &AccountInfo<'info>,
     amount: u64,
     decimals: u8,
+    signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
     let mut ix = spl_token_2022::instruction::transfer_checked(
         token_program.key,
@@ -168,12 +172,14 @@ pub fn transfer_points<'info>(
 
     ix.accounts
         .push(AccountMeta::new_readonly(hook_program.key(), false));
-    ix.accounts
-        .push(AccountMeta::new_readonly(extra_account_meta_list.key(), false));
+    ix.accounts.push(AccountMeta::new_readonly(
+        extra_account_meta_list.key(),
+        false,
+    ));
     // Writable: the hook spends the permit down as the points move.
     ix.accounts.push(AccountMeta::new(permit.key(), false));
 
-    invoke(
+    invoke_signed(
         &ix,
         &[
             source.clone(),
@@ -184,6 +190,7 @@ pub fn transfer_points<'info>(
             extra_account_meta_list.clone(),
             permit.clone(),
         ],
+        signer_seeds,
     )
     .map_err(Into::into)
 }

@@ -53,7 +53,10 @@ fn a_redemption_moves_a_liability_and_not_one_cent_of_usdc() {
     assert_eq!(env.points_supply(&aurora), 500);
     assert_eq!(env.batch_state(&aurora, &customer.pubkey()).amount, 500);
     assert_eq!(
-        env.token_balance(&associated_token_address(&aurora.merchant, &aurora.points_mint)),
+        env.token_balance(&associated_token_address(
+            &aurora.merchant,
+            &aurora.points_mint
+        )),
         0,
         "the escrow is a turnstile, not a vault"
     );
@@ -117,9 +120,13 @@ fn redemption_lowers_the_issuers_health() {
     let (aurora, belmont, customer) = scene(&mut env);
 
     let before = env.health_bps(&aurora);
-    assert_eq!(before, 10_000, "exactly reserved: $3.00 against $3.00 required");
+    assert_eq!(
+        before, 10_000,
+        "exactly reserved: $3.00 against $3.00 required"
+    );
 
-    env.redeem(&aurora, &belmont, &customer, 500).expect("redeem");
+    env.redeem(&aurora, &belmont, &customer, 500)
+        .expect("redeem");
 
     let after = env.health_bps(&aurora);
     assert!(
@@ -151,9 +158,12 @@ fn the_permit_is_spent_to_zero_by_the_redemption() {
         "no permit exists until the clearing house grants one"
     );
 
-    env.redeem(&aurora, &belmont, &customer, 500).expect("redeem");
+    env.redeem(&aurora, &belmont, &customer, 500)
+        .expect("redeem");
 
-    let permit = env.permit_state(&source).expect("the redemption granted one");
+    let permit = env
+        .permit_state(&source)
+        .expect("the redemption granted one");
     assert_eq!(permit.source, source, "and bound it to this account alone");
     assert_eq!(permit.kind, 0, "kind = Redeem");
     assert_eq!(
@@ -290,21 +300,57 @@ fn points_past_their_ttl_cannot_be_redeemed() {
 /// A defaulted issuer's points are not a currency any more. They are a claim in an estate, and
 /// letting an acceptor take one at face would be letting it jump the queue ahead of the creditors
 /// already waiting on the same collateral.
+///
+/// Nothing here is set by hand. Aurora is driven into a real default the only way the protocol
+/// allows one: it prints more points than its collateral can cover in full, a customer spends them,
+/// the debt exceeds the vault, and somebody liquidates it. A second customer, still holding 200
+/// perfectly good-looking points, then discovers what they are actually worth.
 #[test]
 fn a_defaulted_issuers_points_cannot_be_redeemed() {
     let mut env = Env::new();
-    let (aurora, belmont, customer) = scene(&mut env);
 
-    env.set_status(&aurora, MerchantStatus::Defaulted);
+    // 25% reserve: $3.00 of collateral backs $12.00 of face value, and Aurora may print all of it.
+    let aurora = env.issuer("Cafe Aurora", 10_000, 2500, 3 * DOLLAR);
+    let belmont = env.issuer("Bodega Belmont", 10_000, 3000, 3 * DOLLAR);
 
+    let spender = Keypair::new();
+    let holder = Keypair::new();
+    env.issue(&aurora, &spender.pubkey(), 1000).expect("issue");
+    env.issue(&aurora, &holder.pubkey(), 200).expect("issue");
+    assert_eq!(env.merchant_state(&aurora).points_outstanding, 1200);
+
+    let expires_at = env.now() + 30 * 86_400;
+    env.post_offer(&belmont, &aurora, 10_000, 250 * DOLLAR, expires_at)
+        .expect("post_offer");
+
+    // $10.00 of Aurora's promises come home against $3.00 of collateral.
+    env.redeem(&aurora, &belmont, &spender, 1000)
+        .expect("redeem");
+    assert!(!env.is_solvent(&aurora), "$3.00 against $10.00 owed");
+
+    // Belmont takes the estate: the whole vault, against a claim of $10.00.
+    env.liquidate(&aurora, &belmont).expect("liquidate");
+    assert_eq!(
+        env.merchant_state(&aurora).status,
+        MerchantStatus::Defaulted
+    );
+    assert_eq!(env.merchant_state(&aurora).collateral, 0);
+    assert_eq!(env.merchant_state(&aurora).obligations_out, 0);
+
+    // The holder's 200 points are still in their wallet, and Belmont's offer still has $240 of
+    // budget left. Neither fact helps: Aurora is defaulted, and a defaulted issuer's points buy
+    // nothing at any price.
+    assert_eq!(env.points_balance(&aurora, &holder.pubkey()), 200);
     let err = env
-        .redeem(&aurora, &belmont, &customer, 500)
+        .redeem(&aurora, &belmont, &holder, 200)
         .expect_err("Aurora has defaulted");
     assert_custom_error(err, E_ISSUER_DEFAULTED);
 
+    // And nothing about the failed attempt touched anybody's books.
     assert_eq!(env.merchant_state(&aurora).obligations_out, 0);
+    assert_eq!(env.merchant_state(&aurora).points_outstanding, 200);
     assert_eq!(env.merchant_state(&belmont).obligations_in, 0);
-    assert_eq!(env.points_balance(&aurora, &customer.pubkey()), 1000);
+    assert_eq!(env.points_balance(&aurora, &holder.pubkey()), 200);
 }
 
 #[test]
@@ -336,9 +382,13 @@ fn a_redemption_fits_in_the_default_compute_budget() {
     let (aurora, belmont, customer) = scene(&mut env);
 
     // The expensive one: creates the escrow, the permit and the obligation edge.
-    let first = env.redeem(&aurora, &belmont, &customer, 500).expect("first");
+    let first = env
+        .redeem(&aurora, &belmont, &customer, 500)
+        .expect("first");
     // And the ordinary one, with all three already there.
-    let steady = env.redeem(&aurora, &belmont, &customer, 100).expect("steady");
+    let steady = env
+        .redeem(&aurora, &belmont, &customer, 100)
+        .expect("steady");
 
     assert!(
         first.compute_units_consumed < 200_000,

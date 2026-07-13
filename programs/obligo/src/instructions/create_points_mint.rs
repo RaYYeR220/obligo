@@ -3,10 +3,11 @@ use anchor_lang::system_program::{create_account, CreateAccount};
 use anchor_spl::token_2022::spl_token_2022::{extension::ExtensionType, state::Mint as MintState};
 use anchor_spl::token_2022::{initialize_mint2, InitializeMint2, Token2022};
 use anchor_spl::token_2022_extensions::{
-    metadata_pointer_initialize, spl_pod::optional_keys::OptionalNonZeroPubkey,
+    metadata_pointer_initialize, permanent_delegate_initialize,
+    spl_pod::optional_keys::OptionalNonZeroPubkey,
     spl_token_metadata_interface::state::TokenMetadata, token_metadata_initialize,
-    transfer_hook_initialize, MetadataPointerInitialize, TokenMetadataInitialize,
-    TransferHookInitialize,
+    transfer_hook_initialize, MetadataPointerInitialize, PermanentDelegateInitialize,
+    TokenMetadataInitialize, TransferHookInitialize,
 };
 
 use crate::constants::{
@@ -69,6 +70,24 @@ pub struct CreatePointsMint<'info> {
 ///   initialises, then every transfer fails with error 37 and the hook never runs. Points are
 ///   non-transferable because the hook says so — which is strictly better, because the hook can
 ///   also say "except into a redemption, right now, for exactly this many".
+///
+/// And one is deliberately present, and needs defending:
+///
+/// - **`PermanentDelegate`, set to the merchant PDA.** This is the extension everybody warns you
+///   about, and rightly: a permanent delegate can move any holder's tokens without their signature.
+///   That is exactly what `expire_points` needs — a lapsed point has to be burned out of a
+///   customer's account by a crank the customer will never sign, or expiry is not a rule, it is a
+///   request. Every alternative is worse: `approve` needs the customer's signature at issuance
+///   (and they can `revoke` it the next block), and "expire" that only edits the books while the
+///   tokens sit in the wallet is a lie the mint's own supply would contradict.
+///
+///   What makes it safe is *who* the delegate is. It is not the merchant's keypair — it is the
+///   merchant **PDA**, which no private key in the world can sign for. Only this program can, and
+///   this program will use it as a transfer authority in exactly one instruction, `expire_points`,
+///   behind `now >= batch.issued_at + point_ttl`. There is no instruction here that lets a
+///   merchant reach a customer's points before that. And even then, the movement still goes through
+///   the hook and still needs a permit: the permanent delegate has no more right to move a point
+///   without the clearing house's say-so than the customer does.
 pub(crate) fn handler(
     ctx: Context<CreatePointsMint>,
     name: String,
@@ -80,9 +99,7 @@ pub(crate) fn handler(
         ObligoError::MintAlreadyExists
     );
     require!(
-        name.len() <= MAX_NAME_LEN
-            && symbol.len() <= MAX_SYMBOL_LEN
-            && uri.len() <= MAX_URI_LEN,
+        name.len() <= MAX_NAME_LEN && symbol.len() <= MAX_SYMBOL_LEN && uri.len() <= MAX_URI_LEN,
         ObligoError::MetadataTooLong
     );
 
@@ -102,6 +119,7 @@ pub(crate) fn handler(
     let mint_space = ExtensionType::try_calculate_account_len::<MintState>(&[
         ExtensionType::TransferHook,
         ExtensionType::MetadataPointer,
+        ExtensionType::PermanentDelegate,
     ])
     .map_err(|_| ObligoError::Overflow)?;
 
@@ -157,6 +175,19 @@ pub(crate) fn handler(
         ),
         None,
         Some(mint_key),
+    )?;
+
+    // The merchant PDA, and nothing else, so that `expire_points` has a transfer authority for a
+    // customer who will never sign for their own lapsed points. See the note above the handler.
+    permanent_delegate_initialize(
+        CpiContext::new(
+            ctx.accounts.token_program.key(),
+            PermanentDelegateInitialize {
+                token_program_id: ctx.accounts.token_program.to_account_info(),
+                mint: ctx.accounts.points_mint.to_account_info(),
+            },
+        ),
+        &merchant_key,
     )?;
 
     initialize_mint2(
