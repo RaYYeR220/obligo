@@ -1839,11 +1839,18 @@ name = "obligo"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "anchor-spl",
  "litesvm",
+ "obligo_hook",
+ "solana-account",
+ "solana-instruction",
  "solana-keypair",
  "solana-message",
+ "solana-pubkey 3.0.0",
  "solana-signer",
+ "solana-system-interface 2.0.0",
  "solana-transaction",
+ "solana-transaction-error",
 ]
 
 [[package]]

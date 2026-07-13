@@ -1,6 +1,24 @@
+//! Obligo — a permissionless clearing house for loyalty liabilities.
+//!
+//! A merchant posts partial USDC collateral and issues Token-2022 points against it under a
+//! reserve invariant. Other merchants honour those points and accrue obligations against the
+//! issuer. Obligations are netted bilaterally and cleared around cycles; issuers that cannot
+//! cover the debts they have actually incurred are liquidated by anyone who cares to.
+//!
+//! Two rules run through everything here:
+//!
+//! - The `Protocol::authority` may change global parameters and nothing else. It cannot move a
+//!   merchant's collateral, mint or burn a point, cancel an obligation or block a redemption.
+//!   There is no instruction below that would let it, and that is not an accident.
+//! - Token-2022 does not invoke a transfer hook on `MintTo` or `Burn`. So all issuance and
+//!   redemption accounting lives here, in the core, and `obligo_hook` exclusively gates
+//!   *movement*.
+
 pub mod constants;
 pub mod error;
+pub mod hook_cpi;
 pub mod instructions;
+pub mod math;
 pub mod state;
 
 use anchor_lang::prelude::*;
@@ -15,7 +33,39 @@ declare_id!("3YV8p2MhPQpSZS8fp3D7VoQYPy8GwxV221koWpsptRpN");
 pub mod obligo {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        initialize::handler(ctx)
+    /// Genesis. Fixes the settlement asset and the transfer-hook program for all time.
+    pub fn init_protocol(ctx: Context<InitProtocol>) -> Result<()> {
+        instructions::init_protocol::handler(ctx)
+    }
+
+    /// Permissionless. Anyone may become an issuer.
+    pub fn register_merchant(
+        ctx: Context<RegisterMerchant>,
+        name: String,
+        usdc_per_point: u64,
+        reserve_bps: u16,
+        point_ttl: i64,
+    ) -> Result<()> {
+        instructions::register_merchant::handler(ctx, name, usdc_per_point, reserve_bps, point_ttl)
+    }
+
+    /// The merchant re-prices its own risk. It cannot re-price points already in the wild.
+    pub fn set_terms(
+        ctx: Context<SetTerms>,
+        usdc_per_point: u64,
+        reserve_bps: u16,
+        point_ttl: i64,
+    ) -> Result<()> {
+        instructions::set_terms::handler(ctx, usdc_per_point, reserve_bps, point_ttl)
+    }
+
+    /// Permissionless: anyone may back a merchant.
+    pub fn deposit_collateral(ctx: Context<DepositCollateral>, amount: u64) -> Result<()> {
+        instructions::deposit_collateral::handler(ctx, amount)
+    }
+
+    /// Only the merchant, and only down to the reserve its outstanding points demand.
+    pub fn withdraw_collateral(ctx: Context<WithdrawCollateral>, amount: u64) -> Result<()> {
+        instructions::withdraw_collateral::handler(ctx, amount)
     }
 }
