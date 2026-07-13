@@ -19,6 +19,27 @@ fn genesis_fixes_the_settlement_asset_and_the_hook() {
     assert_eq!(protocol.merchant_count, 0);
 }
 
+/// Genesis pins the hook program by address, not merely by "is it executable". A malicious hook
+/// chosen at genesis would bind every points mint made afterwards to itself — permanently, because
+/// no instruction ever rewrites `protocol.hook_program` — and silently gut the permit model. So the
+/// one door that sets it is nailed to the real hook's id.
+#[test]
+fn genesis_rejects_a_hook_that_is_not_the_canonical_one() {
+    let mut env = Env::new_without_genesis();
+
+    // The core program itself: executable and loaded, so the `executable` guard passes and only the
+    // `address` constraint can bite — which is exactly the check under test. It is plainly not the hook.
+    let err = env
+        .init_protocol_with_hook(obligo::ID)
+        .expect_err("the hook program is pinned at genesis");
+    assert_custom_error(err, E_CONSTRAINT_ADDRESS);
+
+    // The failed attempt rolled back, so genesis with the real hook still succeeds afterwards.
+    env.init_protocol_with_hook(obligo_hook::ID)
+        .expect("the canonical hook is accepted");
+    assert_eq!(env.protocol_state().hook_program, obligo_hook::ID);
+}
+
 #[test]
 fn anyone_may_register_as_a_merchant() {
     let mut env = Env::new();

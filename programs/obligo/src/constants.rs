@@ -1,8 +1,17 @@
+use anchor_lang::prelude::{pubkey, Pubkey};
+
 /// Global config. One per deployment.
 pub const PROTOCOL_SEED: &[u8] = b"protocol";
 
 /// The program's signer PDA. The hook grants a permit to nobody else.
 pub const AUTHORITY_SEED: &[u8] = b"authority";
+
+/// The one transfer-hook program every points mint is permanently bound to. Pinned here so genesis
+/// can only ever wire the protocol to the real `obligo_hook`, and never to a look-alike a front-run
+/// could slip in — which would silently gut the permit model for every mint made afterwards. This is
+/// the mirror image of the hook hardcoding the core's program id: neither half will talk to a
+/// stranger wearing the other's clothes.
+pub const OBLIGO_HOOK_ID: Pubkey = pubkey!("AtDpNdzKVRxMwK5bTotfmjxQdVU854RopJccgYRP8wQ7");
 
 pub const MERCHANT_SEED: &[u8] = b"merchant";
 pub const VAULT_SEED: &[u8] = b"vault";

@@ -77,10 +77,12 @@ pub const E_NO_CLAIM: u32 = 6021;
 pub const E_STILL_INSOLVENT: u32 = 6022;
 pub const E_NOT_DEFAULTED: u32 = 6023;
 pub const E_NOT_YET_EXPIRED: u32 = 6024;
+pub const E_PERMIT_NOT_CONSUMED: u32 = 6025;
 
 /// Anchor's own constraint failures.
 pub const E_CONSTRAINT_HAS_ONE: u32 = 2001;
 pub const E_CONSTRAINT_SEEDS: u32 = 2006;
+pub const E_CONSTRAINT_ADDRESS: u32 = 2012;
 pub const E_ACCOUNT_DISCRIMINATOR_MISMATCH: u32 = 3002;
 pub const E_ACCOUNT_NOT_INITIALIZED: u32 = 3012;
 
@@ -125,6 +127,15 @@ pub struct Env {
 impl Env {
     /// Loads both programs, mints a USDC, and runs genesis.
     pub fn new() -> Self {
+        let mut env = Self::new_without_genesis();
+        env.init_protocol_with_hook(obligo_hook::ID)
+            .expect("init_protocol");
+        env
+    }
+
+    /// Both programs loaded and a USDC mint created, but genesis NOT yet run — so a test can drive
+    /// `init_protocol` itself, e.g. to prove a hook program that is not the canonical one is refused.
+    pub fn new_without_genesis() -> Self {
         let mut svm = LiteSVM::new();
         svm.add_program(obligo::ID, &read_program("target/deploy/obligo.so"))
             .unwrap();
@@ -149,7 +160,6 @@ impl Env {
         };
 
         env.usdc_mint = env.create_usdc_mint();
-        env.init_protocol();
         env
     }
 
@@ -255,14 +265,19 @@ impl Env {
 
     // ---- protocol -----------------------------------------------------------------------
 
-    fn init_protocol(&mut self) {
+    /// Run genesis, naming an arbitrary hook program — so a test can hand it one that is not the
+    /// canonical hook and watch the `address` constraint refuse it.
+    pub fn init_protocol_with_hook(
+        &mut self,
+        hook_program: Pubkey,
+    ) -> Result<(), TransactionError> {
         let ix = Instruction {
             program_id: obligo::ID,
             accounts: obligo::accounts::InitProtocol {
                 authority: self.protocol_authority.pubkey(),
                 protocol: protocol_address(),
                 usdc_mint: self.usdc_mint,
-                hook_program: obligo_hook::ID,
+                hook_program,
                 protocol_authority: core_authority(),
                 system_program: SYSTEM_PROGRAM_ID,
             }
@@ -270,7 +285,7 @@ impl Env {
             data: obligo::instruction::InitProtocol {}.data(),
         };
         let authority = self.protocol_authority.insecure_clone();
-        self.send(&[ix], &[&authority]).expect("init_protocol");
+        self.send(&[ix], &[&authority])
     }
 
     /// Registers a merchant and hands back everything needed to act as it.
@@ -347,6 +362,21 @@ impl Env {
         let mut state = Merchant::try_deserialize(&mut raw.data.as_slice()).unwrap();
         state.points_outstanding = points;
         state.total_issued = points;
+
+        let mut buf = Vec::new();
+        state.try_serialize(&mut buf).unwrap();
+        raw.data[..buf.len()].copy_from_slice(&buf);
+
+        self.svm.set_account(m.merchant, raw).unwrap();
+    }
+
+    /// Test surgery: overwrite a merchant's stored `bump` so its account no longer re-derives its
+    /// own PDA. The account stays exactly where it is; it is simply no longer canonical — the state
+    /// `clear_cycle`'s per-merchant re-derivation exists to reject.
+    pub fn corrupt_merchant_bump(&mut self, m: &MerchantHandle, bump: u8) {
+        let mut raw = self.svm.get_account(&m.merchant).unwrap();
+        let mut state = Merchant::try_deserialize(&mut raw.data.as_slice()).unwrap();
+        state.bump = bump;
 
         let mut buf = Vec::new();
         state.try_serialize(&mut buf).unwrap();
