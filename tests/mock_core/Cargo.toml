@@ -1,0 +1,37 @@
+[package]
+name = "mock_core"
+version = "0.1.0"
+description = "Test fixture: stands in for the obligo core program when exercising the hook's permit path"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "mock_core"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = "1.1.2"
+obligo_hook = { path = "../../programs/obligo_hook", features = ["cpi"] }
+
+# Its own workspace: keeping it out of the root one stops `cpi`/`no-entrypoint` feature
+# unification from stripping the entrypoint out of the real obligo_hook.so.
+[workspace]
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
