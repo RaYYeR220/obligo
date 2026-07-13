@@ -90,10 +90,13 @@ pub struct Settle<'info> {
 /// $8 do not need $18 of liquidity between them; they need $2. The other $16 is debt cancelling
 /// against debt, and it never touches a vault.
 ///
-/// `paid = min(net, collateral)`. A debtor that cannot cover the net is not refused and is not
-/// forgiven: it pays everything it has, the residual stays on the edge with the creditor's name on
-/// it, and the merchant is now visibly insolvent. That is `liquidate`'s business, not this
-/// instruction's.
+/// The cash leg is paid only while the debtor is solvent — while its collateral still covers every
+/// debt it owes, not just this one. A solvent debtor pays the full net (its collateral is by
+/// definition enough to leave every other creditor whole). A debtor that has already been redeemed
+/// underwater pays nothing here: its vault is an estate that belongs to all its creditors in
+/// proportion, and handing it to whichever one cranks `settle` first would be a preference. That
+/// estate is `liquidate`'s business, not this instruction's. The `offset` — symmetric debt
+/// cancelling symmetric debt — moves no money and is applied either way.
 pub(crate) fn handler(ctx: Context<Settle>) -> Result<()> {
     let a_key = ctx.accounts.merchant_a.key();
     let b_key = ctx.accounts.merchant_b.key();
