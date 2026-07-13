@@ -117,4 +117,14 @@ pub mod obligo {
     pub fn settle(ctx: Context<Settle>) -> Result<()> {
         instructions::settle::handler(ctx)
     }
+
+    /// Walk a ring of debt and cancel it. **Zero USDC moves.** The client finds the cycle off
+    /// chain; the program proves it is real and clears it. This is the instruction the whole
+    /// protocol is built to make possible.
+    pub fn clear_cycle<'info>(
+        ctx: Context<'info, ClearCycle<'info>>,
+        cycle_len: u8,
+    ) -> Result<()> {
+        instructions::clear_cycle::handler(ctx, cycle_len)
+    }
 }

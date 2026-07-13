@@ -56,3 +56,17 @@ pub struct Settled {
     /// in which case it is now insolvent, and anyone may liquidate it.
     pub residual: u64,
 }
+
+/// A ring of debt, cancelled.
+///
+/// `usdc_moved` is in the event because it is the claim, and because it is always zero. Every
+/// merchant in the cycle owes `amount_cleared` less and is owed `amount_cleared` less, no vault
+/// was opened, and no counterparty had to find the liquidity to make it happen. This is the line
+/// that separates a clearing house from a payment network.
+#[event]
+pub struct CycleCleared {
+    pub cycle_len: u8,
+    /// The smallest edge in the ring — the most that could be cancelled all the way round it.
+    pub amount_cleared: u64,
+    pub usdc_moved: u64,
+}

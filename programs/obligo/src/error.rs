@@ -40,4 +40,6 @@ pub enum ObligoError {
     NothingToSettle,
     #[msg("the accounts given do not describe a real cycle in the obligation graph")]
     InvalidCycle,
+    #[msg("a cycle whose smallest edge is zero clears nothing")]
+    EmptyCycle,
 }

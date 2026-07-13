@@ -1,4 +1,5 @@
 pub mod cancel_offer;
+pub mod clear_cycle;
 pub mod create_points_mint;
 pub mod deposit_collateral;
 pub mod init_protocol;
@@ -11,6 +12,7 @@ pub mod settle;
 pub mod withdraw_collateral;
 
 pub use cancel_offer::*;
+pub use clear_cycle::*;
 pub use create_points_mint::*;
 pub use deposit_collateral::*;
 pub use init_protocol::*;

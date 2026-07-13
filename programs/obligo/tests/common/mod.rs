@@ -20,7 +20,7 @@ use litesvm::types::TransactionMetadata;
 use litesvm::LiteSVM;
 use obligo::events::Redeemed;
 use obligo::state::{AcceptanceOffer, Merchant, MerchantStatus, Obligation, PointBatch, Protocol};
-use solana_instruction::{error::InstructionError, Instruction};
+use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_signer::Signer;
@@ -32,6 +32,21 @@ pub const TOKEN_PROGRAM_ID: Pubkey = anchor_spl::token::ID;
 pub const TOKEN_2022_ID: Pubkey = anchor_spl::token_2022::ID;
 pub const ATA_PROGRAM_ID: Pubkey = anchor_spl::associated_token::ID;
 pub const SYSTEM_PROGRAM_ID: Pubkey = solana_system_interface::program::ID;
+pub const COMPUTE_BUDGET_ID: Pubkey =
+    Pubkey::from_str_const("ComputeBudget111111111111111111111111111111");
+
+/// Raise the transaction's compute ceiling. Hand-built rather than pulled in as a dependency:
+/// the ComputeBudget program's `SetComputeUnitLimit` is one tag byte and a little-endian u32.
+pub fn compute_limit(units: u32) -> Instruction {
+    let mut data = Vec::with_capacity(5);
+    data.push(2u8);
+    data.extend_from_slice(&units.to_le_bytes());
+    Instruction {
+        program_id: COMPUTE_BUDGET_ID,
+        accounts: vec![],
+        data,
+    }
+}
 
 pub const USDC_DECIMALS: u8 = 6;
 pub const DOLLAR: u64 = 1_000_000;
@@ -56,10 +71,12 @@ pub const E_POINTS_EXPIRED: u32 = 6015;
 pub const E_INSUFFICIENT_POINTS: u32 = 6016;
 pub const E_NOTHING_TO_SETTLE: u32 = 6017;
 pub const E_INVALID_CYCLE: u32 = 6018;
+pub const E_EMPTY_CYCLE: u32 = 6019;
 
 /// Anchor's own constraint failures.
 pub const E_CONSTRAINT_HAS_ONE: u32 = 2001;
 pub const E_CONSTRAINT_SEEDS: u32 = 2006;
+pub const E_ACCOUNT_DISCRIMINATOR_MISMATCH: u32 = 3002;
 pub const E_ACCOUNT_NOT_INITIALIZED: u32 = 3012;
 
 fn workspace_root() -> PathBuf {
@@ -716,6 +733,52 @@ impl Env {
         }
     }
 
+    // ---- cycle clearing -----------------------------------------------------------------
+
+    /// Clear the ring `m0 -> m1 -> ... -> m0`, with the edges derived honestly from it.
+    pub fn clear_cycle(
+        &mut self,
+        ring: &[&MerchantHandle],
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let k = ring.len();
+        let merchants: Vec<Pubkey> = ring.iter().map(|m| m.merchant).collect();
+        let edges: Vec<Pubkey> = (0..k)
+            .map(|i| obligation_address(&ring[i].merchant, &ring[(i + 1) % k].merchant))
+            .collect();
+        self.clear_cycle_raw(k as u8, &merchants, &edges, None)
+    }
+
+    /// The same, with every account nameable and the compute ceiling adjustable — so a test can
+    /// hand the program a ring that is a lie and watch it refuse.
+    pub fn clear_cycle_raw(
+        &mut self,
+        cycle_len: u8,
+        merchants: &[Pubkey],
+        edges: &[Pubkey],
+        compute_units: Option<u32>,
+    ) -> Result<TransactionMetadata, TransactionError> {
+        let mut accounts = obligo::accounts::ClearCycle {
+            cranker: self.payer.pubkey(),
+        }
+        .to_account_metas(None);
+        for key in merchants.iter().chain(edges.iter()) {
+            accounts.push(AccountMeta::new(*key, false));
+        }
+
+        let ix = Instruction {
+            program_id: obligo::ID,
+            accounts,
+            data: obligo::instruction::ClearCycle { cycle_len }.data(),
+        };
+
+        let mut ixs = Vec::new();
+        if let Some(units) = compute_units {
+            ixs.push(compute_limit(units));
+        }
+        ixs.push(ix);
+        self.send_meta(&ixs, &[])
+    }
+
     // ---- reads --------------------------------------------------------------------------
 
     pub fn protocol_state(&self) -> Protocol {
@@ -771,6 +834,12 @@ impl Env {
         Obligation::try_deserialize(&mut raw.data.as_slice())
             .unwrap()
             .amount
+    }
+
+    /// The account's data, exactly as it sits on chain. For the claim that cycle clearing leaves
+    /// every vault *byte-identical*, a balance read through a getter is not quite the claim.
+    pub fn raw_data(&self, address: &Pubkey) -> Vec<u8> {
+        self.svm.get_account(address).expect("account").data
     }
 
     /// The hook's permit for a source account: `None` if it was never granted.
