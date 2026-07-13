@@ -46,7 +46,10 @@ pub fn health_bps(collateral: u64, required: u64) -> u64 {
     if required == 0 {
         return u64::MAX;
     }
-    (((collateral as u128) * BPS) / (required as u128)) as u64
+    // Saturate rather than wrap. When `required` is a tiny fraction of `collateral` the ratio can
+    // exceed `u64::MAX` — `as u64` would silently wrap a very healthy merchant round to a small,
+    // unhealthy-looking number. Clamping to `u64::MAX` matches the `required == 0 => MAX` convention.
+    u64::try_from((collateral as u128) * BPS / (required as u128)).unwrap_or(u64::MAX)
 }
 
 /// Solvency ignores the reserve entirely: it asks only whether the merchant can pay the debts
@@ -94,5 +97,15 @@ mod tests {
     #[test]
     fn face_overflow_is_caught_not_wrapped() {
         assert!(face(u64::MAX, 2).is_err());
+    }
+
+    #[test]
+    fn health_saturates_instead_of_wrapping() {
+        // u64::MAX * 10_000 / 1 overflows a u64 by four orders of magnitude. It must clamp to
+        // u64::MAX — the same "infinitely healthy" sentinel `required == 0` returns — and never wrap
+        // round to a small number that would read as unhealthy.
+        assert_eq!(health_bps(u64::MAX, 1), u64::MAX);
+        // And an ordinary ratio still computes exactly.
+        assert_eq!(health_bps(3_000_000, 3_000_000), 10_000);
     }
 }
