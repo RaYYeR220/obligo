@@ -189,10 +189,10 @@ reconciles with the protocol's books.
 Collateral sits idle between being posted and being paid out, so the two collateral instructions route
 through a pluggable **`YieldAdapter`** seam that can put it to work — "self-funding loyalty." The default
 is a passthrough (`NullAdapter`): the vault just holds USDC, the on-chain effect is byte-for-byte today's,
-and it is what devnet runs — so the demo keeps its "no oracle, no external dependency" property intact. A
-`KaminoAdapter` behind a cargo feature devnet never compiles routes collateral into Kamino's KLend reserve
-via hand-rolled `invoke_signed`; a mainnet-fork test drives it against the **real** mainnet KLend program
-and USDC reserve and shows a redemption returning **1,014.75 USDC on a 1,000 USDC deposit after ~180 days**
+and it is what devnet runs — so the demo keeps its "no oracle, no external dependency" property intact.
+A `KaminoAdapter`, behind a cargo feature that devnet never compiles, routes collateral into Kamino's
+KLend reserve via hand-rolled `invoke_signed`. A mainnet-fork test drives it against the **real** mainnet
+KLend program and USDC reserve and shows a deposit of **1,000 USDC returning 1,014.75 USDC after ~180 days**
 of genuine accrued interest. Crucially, **solvency is always measured on principal, never on principal +
 yield** — the invariant and its tests are untouched, and yield is strictly additive and claimable. Full
 write-up, numbers, and reserve pubkeys in [`docs/YIELD.md`](docs/YIELD.md).
