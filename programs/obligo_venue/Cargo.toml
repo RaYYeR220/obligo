@@ -1,0 +1,32 @@
+[package]
+name = "obligo_venue"
+version = "0.1.0"
+description = "A worked example of a third-party point-of-sale that composes with Obligo by CPI"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "obligo_venue"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+# The core is deliberately NOT a build dependency. Adding `obligo = { features = ["cpi"] }`
+# would enable `no-entrypoint`, and cargo unifies features across the workspace, so a plain
+# `cargo-build-sbf` would then emit a core `.so` with no entrypoint — it deploys, resolves and
+# fails silently at runtime. So this program knows the core by its wire format instead: an
+# 8-byte Anchor discriminator plus borsh args, invoked with the account metas the core's own
+# `#[derive(Accounts)]` declares. The exact same trade the core makes to call its hook.
+[dependencies]
+anchor-lang = "1.1.2"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

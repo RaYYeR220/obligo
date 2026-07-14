@@ -163,6 +163,14 @@ impl Env {
         env
     }
 
+    /// Load an additional compiled program into the SVM — e.g. a third-party integrator that
+    /// composes with the core by CPI. The `.so` must already be built (`cargo-build-sbf`).
+    pub fn add_program(&mut self, program_id: Pubkey, relative_so_path: &str) {
+        self.svm
+            .add_program(program_id, &read_program(relative_so_path))
+            .unwrap();
+    }
+
     // ---- transactions -------------------------------------------------------------------
 
     pub fn send(

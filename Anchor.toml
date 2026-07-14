@@ -9,6 +9,7 @@ skip-lint = false
 [programs.localnet]
 obligo = "3YV8p2MhPQpSZS8fp3D7VoQYPy8GwxV221koWpsptRpN"
 obligo_hook = "AtDpNdzKVRxMwK5bTotfmjxQdVU854RopJccgYRP8wQ7"
+obligo_venue = "7wNEAuRAECFeN2Y9bSdeXCxJAwvazbhEPsXhgRNFHD96"
 
 [programs.devnet]
 obligo = "3YV8p2MhPQpSZS8fp3D7VoQYPy8GwxV221koWpsptRpN"

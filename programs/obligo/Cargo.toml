@@ -28,6 +28,9 @@ anchor-spl = "1.1.2"
 # `no-entrypoint` because the test binary already links one program's entrypoint — ours.
 [dev-dependencies]
 obligo_hook = { path = "../obligo_hook", features = ["no-entrypoint"] }
+# The CPI example venue, exercised end-to-end in tests/venue.rs. `no-entrypoint` for the same
+# reason as the hook: the test binary already links one program's entrypoint — the core's.
+obligo_venue = { path = "../obligo_venue", features = ["no-entrypoint"] }
 litesvm = "0.10.0"
 spl-tlv-account-resolution = "0.11.1"
 solana-account = "3.0.0"

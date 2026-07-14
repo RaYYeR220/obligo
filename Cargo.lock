@@ -1842,6 +1842,7 @@ dependencies = [
  "anchor-spl",
  "litesvm",
  "obligo_hook",
+ "obligo_venue",
  "solana-account",
  "solana-instruction",
  "solana-keypair",
@@ -1873,6 +1874,13 @@ dependencies = [
  "spl-discriminator",
  "spl-tlv-account-resolution",
  "spl-transfer-hook-interface",
+]
+
+[[package]]
+name = "obligo_venue"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
 ]
 
 [[package]]
