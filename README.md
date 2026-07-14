@@ -155,7 +155,7 @@ Selected live transactions (full list in [`docs/DEVNET.md`](docs/DEVNET.md)):
 - **Breakage** — lapsed points burned, $1.00 of breakage recognised on-chain.
   [`4bQBCpbR…`](https://explorer.solana.com/tx/4bQBCpbRWebPMdmcVd3aoSjKnPEbv9FNJpuNxri4D9VVxx1VqZ3q483phJH1EPjQmjSLZd7JKJzPfmaCnFan2wXJ?cluster=devnet)
 
-**Tests:** 101 passing across the three programs — unit tests for the reserve math, per-instruction
+**Tests:** 102 passing across the three programs — unit tests for the reserve math, per-instruction
 behaviour, adversarial tests that a forged clearing cycle is unrepresentable, a test that a third-party
 program can redeem by CPI atomically, and property tests that USDC is conserved by every instruction, that
 cycle clearing moves no USDC, that obligations stay symmetric, and that on-chain point supply always
@@ -205,7 +205,7 @@ Requires the Solana toolchain (Agave 3.1+) and Rust 1.89+.
 # build all three programs
 cargo build-sbf
 
-# run the full test suite (101 tests across the core, hook and venue)
+# run the full test suite (102 tests across the core, hook and venue)
 cargo test
 
 # drive the whole protocol against devnet through the SDK —
