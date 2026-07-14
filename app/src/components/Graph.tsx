@@ -197,9 +197,10 @@ export default function Graph(props: Props) {
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="xMidYMid meet"
       width="100%"
       height="100%"
-      style={{ display: 'block' }}
+      style={{ display: 'block', position: 'absolute', inset: 0 }}
       onClick={() => onSelect(null)}
     >
       <defs>
