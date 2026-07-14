@@ -197,7 +197,22 @@ graph and assembles a `clear_cycle` call with its accounts in the exact order th
 the piece integrators need most. Its [`examples/prove.ts`](sdk/examples/prove.ts) runs the whole
 register → issue → offer → redeem → **find-and-clear-a-cycle** flow against devnet.
 
-## Build & run
+## The client
+
+[`app/`](app) is a terminal-style web client that reads live devnet state and renders the whole network
+as a force-directed **obligation graph** — merchants sized by collateral and coloured by health, debts as
+directed edges. Its centrepiece is the cycle-clearing money shot: hit **scan for cycle**, watch a ring of
+debt light up, and clear it — the edges collapse to zero, a counter tallies the obligations extinguished,
+and **$0.00 USDC moved** stamps in. It also has a merchant console (register, deposit, issue, post offers)
+and a customer redeem view. Writes are signed with a local dev key or a funded burner — no browser
+extension needed, so `clear_cycle` (which is permissionless and needs only SOL) runs from a free faucet
+key. Several clearable rings are seeded live on devnet to try it against.
+
+```bash
+cd app && npm install && npm run dev
+```
+
+## Build & run the protocol
 
 Requires the Solana toolchain (Agave 3.1+) and Rust 1.89+.
 

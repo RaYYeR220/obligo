@@ -10,7 +10,6 @@ test-ledger
 dist
 app/dist
 build
-.playwright-mcp
 *.log
 .env
 .env.*
