@@ -10,6 +10,9 @@ name = "obligo"
 
 [features]
 default = []
+# The yield seam. Devnet compiles neither line: the default build is the passthrough NullAdapter,
+# and `kamino` swaps in the KaminoAdapter that routes collateral into KLend. Never in `default`.
+kamino = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []

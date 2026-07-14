@@ -78,6 +78,8 @@ pub const E_STILL_INSOLVENT: u32 = 6022;
 pub const E_NOT_DEFAULTED: u32 = 6023;
 pub const E_NOT_YET_EXPIRED: u32 = 6024;
 pub const E_PERMIT_NOT_CONSUMED: u32 = 6025;
+pub const E_INVALID_YIELD_ACCOUNTS: u32 = 6026;
+pub const E_YIELD_SHORTFALL: u32 = 6027;
 
 /// Anchor's own constraint failures.
 pub const E_CONSTRAINT_HAS_ONE: u32 = 2001;

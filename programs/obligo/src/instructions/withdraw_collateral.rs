@@ -7,6 +7,7 @@ use crate::constants::MERCHANT_SEED;
 use crate::error::ObligoError;
 use crate::math::required_collateral;
 use crate::state::Merchant;
+use crate::yield_adapter::YieldAdapter;
 
 /// The merchant's own authority, and nobody else's.
 ///
@@ -40,32 +41,45 @@ pub struct WithdrawCollateral<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-pub(crate) fn handler(ctx: Context<WithdrawCollateral>, amount: u64) -> Result<()> {
+pub(crate) fn handler<'info>(
+    ctx: Context<'info, WithdrawCollateral<'info>>,
+    amount: u64,
+) -> Result<()> {
     require!(amount > 0, ObligoError::InvalidAmount);
 
-    let merchant = &mut ctx.accounts.merchant;
-
-    let remaining = merchant
+    let remaining = ctx
+        .accounts
+        .merchant
         .collateral
         .checked_sub(amount)
         .ok_or(ObligoError::InsufficientCollateral)?;
 
     // The invariant is re-checked against the books as they would stand AFTER the withdrawal.
     // Checking it beforehand would let a merchant walk out with the reserve backing every point
-    // it has issued.
+    // it has issued. It is measured on principal — `collateral` — and never on principal + yield,
+    // so a yield-earning vault can never issue against interest it has not realised.
     let required = required_collateral(
-        merchant.obligations_out,
-        merchant.points_outstanding,
-        merchant.usdc_per_point,
-        merchant.reserve_bps,
+        ctx.accounts.merchant.obligations_out,
+        ctx.accounts.merchant.points_outstanding,
+        ctx.accounts.merchant.usdc_per_point,
+        ctx.accounts.merchant.reserve_bps,
     )?;
     require!(remaining >= required, ObligoError::ReserveBreached);
 
-    merchant.collateral = remaining;
+    ctx.accounts.merchant.collateral = remaining;
 
-    let authority = merchant.authority;
-    let bump = merchant.bump;
+    let authority = ctx.accounts.merchant.authority;
+    let bump = ctx.accounts.merchant.bump;
     let seeds: &[&[u8]] = &[MERCHANT_SEED, authority.as_ref(), &[bump]];
+
+    // Bring the principal back into the vault before it leaves it. NullAdapter passthrough: it is
+    // already there. Kamino: redeem the cTokens KLend is holding back into USDC first, which is
+    // where the accrued interest is realised.
+    let vault = ctx.accounts.vault.to_account_info();
+    let owner = ctx.accounts.merchant.to_account_info();
+    let adapter =
+        crate::yield_adapter::vault_adapter(&vault, ctx.remaining_accounts, &owner, seeds)?;
+    adapter.withdraw(amount)?;
 
     transfer_checked(
         CpiContext::new_with_signer(

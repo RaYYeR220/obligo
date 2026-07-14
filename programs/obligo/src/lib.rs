@@ -21,6 +21,7 @@ pub mod hook_cpi;
 pub mod instructions;
 pub mod math;
 pub mod state;
+pub mod yield_adapter;
 
 use anchor_lang::prelude::*;
 
@@ -61,13 +62,20 @@ pub mod obligo {
         instructions::set_terms::handler(ctx, usdc_per_point, reserve_bps, point_ttl)
     }
 
-    /// Permissionless: anyone may back a merchant.
-    pub fn deposit_collateral(ctx: Context<DepositCollateral>, amount: u64) -> Result<()> {
+    /// Permissionless: anyone may back a merchant. Takes `'info` explicitly because the collateral
+    /// is routed through the yield seam, which may read KLend accounts from `remaining_accounts`.
+    pub fn deposit_collateral<'info>(
+        ctx: Context<'info, DepositCollateral<'info>>,
+        amount: u64,
+    ) -> Result<()> {
         instructions::deposit_collateral::handler(ctx, amount)
     }
 
     /// Only the merchant, and only down to the reserve its outstanding points demand.
-    pub fn withdraw_collateral(ctx: Context<WithdrawCollateral>, amount: u64) -> Result<()> {
+    pub fn withdraw_collateral<'info>(
+        ctx: Context<'info, WithdrawCollateral<'info>>,
+        amount: u64,
+    ) -> Result<()> {
         instructions::withdraw_collateral::handler(ctx, amount)
     }
 

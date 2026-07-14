@@ -54,4 +54,8 @@ pub enum ObligoError {
     NotYetExpired,
     #[msg("the movement did not consume the whole permit, leaving a live bearer authorization")]
     PermitNotConsumed,
+    #[msg("the yield adapter was handed the wrong number or order of accounts")]
+    InvalidYieldAccounts,
+    #[msg("a yield withdrawal returned less principal than was asked for")]
+    YieldShortfall,
 }
