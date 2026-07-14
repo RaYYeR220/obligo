@@ -1,0 +1,48 @@
+[package]
+name = "kamino_probe"
+version = "0.1.0"
+edition = "2021"
+description = "Fork-test harness: drives obligo's KaminoAdapter against real mainnet KLend"
+
+# A standalone workspace on purpose. If this crate were a member of the root workspace, a plain
+# `cargo-build-sbf` there would unify the `kamino` feature it turns on into the devnet obligo.so —
+# the exact feature-unification trap documented in _internal/PROGRESS.md. Kept apart, the root build
+# never sees `kamino`, and this harness never touches target/deploy/obligo.so.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = "1.1.2"
+# The whole point: the probe calls obligo's real KaminoAdapter, with the kamino feature on. It is a
+# dependency only for its yield_adapter module; `no-entrypoint` so the probe's own entrypoint is the
+# only one that links.
+obligo = { path = "../programs/obligo", features = ["kamino", "no-entrypoint"] }
+
+[dev-dependencies]
+anchor-spl = "1.1.2"
+litesvm = "0.10.0"
+serde_json = "1"
+solana-account = "3.0.0"
+solana-instruction = "3.0.0"
+solana-keypair = "3.0.1"
+solana-message = "3.0.1"
+solana-pubkey = "3.0.0"
+solana-signer = "3.0.0"
+solana-transaction = "3.0.2"
+solana-transaction-error = "3.0.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

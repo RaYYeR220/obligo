@@ -1,0 +1,4 @@
+# Real mainnet fixtures, fetched by fetch-fixtures.ps1. Never committed: the KLend program is
+# BUSL-1.1, and the reserve/scope state is large and time-varying. Re-fetch to run the test.
+/fixtures/
+/target/

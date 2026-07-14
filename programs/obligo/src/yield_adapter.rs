@@ -160,6 +160,7 @@ mod kamino {
     /// | 8   | collateral token program             |
     /// | 9   | liquidity token program              |
     /// | 10  | price oracle (for refresh_reserve)   |
+    /// | 11  | instructions sysvar                  |
     pub struct KaminoAdapter<'a, 'info> {
         klend_program: &'a AccountInfo<'info>,
         owner: &'a AccountInfo<'info>,
@@ -174,6 +175,9 @@ mod kamino {
         collateral_token_program: &'a AccountInfo<'info>,
         liquidity_token_program: &'a AccountInfo<'info>,
         oracle: &'a AccountInfo<'info>,
+        /// KLend checks the transaction's instruction list to reject flash-loan sandwiches, so
+        /// deposit and redeem both take the instructions sysvar.
+        instructions_sysvar: &'a AccountInfo<'info>,
         signer_seeds: &'a [&'a [u8]],
     }
 
@@ -201,6 +205,7 @@ mod kamino {
                 collateral_token_program: at(8)?,
                 liquidity_token_program: at(9)?,
                 oracle: at(10)?,
+                instructions_sysvar: at(11)?,
                 owner,
                 user_liquidity,
                 signer_seeds,
@@ -208,18 +213,23 @@ mod kamino {
         }
 
         /// KLend will not price a reserve whose oracle it has not read this slot, so every deposit
-        /// and redeem is preceded by a `refresh_reserve`. The absent oracle slots are filled with
-        /// the KLend program id, the sentinel its optional-account decoding expects.
+        /// and redeem is preceded by a `refresh_reserve`. Its account list is
+        /// `reserve, lending_market, [pyth], [switchboard_price], [switchboard_twap], [scope]`, all
+        /// four oracles optional. The Kamino main-market reserves — USDC included — are priced by
+        /// **Scope**, so the oracle goes in the last slot and the three before it carry the KLend
+        /// program id, the sentinel Anchor's optional-account decoding reads as `None`. A
+        /// pyth-priced reserve would instead put its oracle in the first slot; the target reserve is
+        /// scope, and the fork test pins that.
         fn refresh_reserve(&self) -> Result<()> {
             let ix = Instruction {
                 program_id: KLEND_PROGRAM_ID,
                 accounts: vec![
                     AccountMeta::new(self.reserve.key(), false),
                     AccountMeta::new_readonly(self.lending_market.key(), false),
-                    AccountMeta::new_readonly(self.oracle.key(), false),
-                    AccountMeta::new_readonly(KLEND_PROGRAM_ID, false),
-                    AccountMeta::new_readonly(KLEND_PROGRAM_ID, false),
-                    AccountMeta::new_readonly(KLEND_PROGRAM_ID, false),
+                    AccountMeta::new_readonly(KLEND_PROGRAM_ID, false), // pyth: None
+                    AccountMeta::new_readonly(KLEND_PROGRAM_ID, false), // switchboard price: None
+                    AccountMeta::new_readonly(KLEND_PROGRAM_ID, false), // switchboard twap: None
+                    AccountMeta::new_readonly(self.oracle.key(), false), // scope prices
                 ],
                 data: REFRESH_RESERVE.to_vec(),
             };
@@ -228,8 +238,8 @@ mod kamino {
                 &[
                     self.reserve.clone(),
                     self.lending_market.clone(),
-                    self.oracle.clone(),
                     self.klend_program.clone(),
+                    self.oracle.clone(),
                 ],
                 self.signer_seeds_wrapped().as_slice(),
             )
@@ -259,6 +269,7 @@ mod kamino {
                     AccountMeta::new(self.user_collateral.key(), false),
                     AccountMeta::new_readonly(self.collateral_token_program.key(), false),
                     AccountMeta::new_readonly(self.liquidity_token_program.key(), false),
+                    AccountMeta::new_readonly(self.instructions_sysvar.key(), false),
                 ],
                 data,
             };
@@ -275,12 +286,13 @@ mod kamino {
             data.extend_from_slice(&REDEEM_RESERVE_COLLATERAL);
             data.extend_from_slice(&collateral_amount.to_le_bytes());
 
+            // Redeem's order is NOT deposit's: KLend puts `lending_market` before `reserve` here.
             let ix = Instruction {
                 program_id: KLEND_PROGRAM_ID,
                 accounts: vec![
                     AccountMeta::new_readonly(self.owner.key(), true),
-                    AccountMeta::new(self.reserve.key(), false),
                     AccountMeta::new_readonly(self.lending_market.key(), false),
+                    AccountMeta::new(self.reserve.key(), false),
                     AccountMeta::new_readonly(self.lending_market_authority.key(), false),
                     AccountMeta::new_readonly(self.reserve_liquidity_mint.key(), false),
                     AccountMeta::new(self.reserve_collateral_mint.key(), false),
@@ -289,6 +301,7 @@ mod kamino {
                     AccountMeta::new(self.user_liquidity.key(), false),
                     AccountMeta::new_readonly(self.collateral_token_program.key(), false),
                     AccountMeta::new_readonly(self.liquidity_token_program.key(), false),
+                    AccountMeta::new_readonly(self.instructions_sysvar.key(), false),
                 ],
                 data,
             };
@@ -313,14 +326,15 @@ mod kamino {
                 self.user_collateral.clone(),
                 self.collateral_token_program.clone(),
                 self.liquidity_token_program.clone(),
+                self.instructions_sysvar.clone(),
             ]
         }
 
         fn redeem_infos(&self) -> Vec<AccountInfo<'info>> {
             vec![
                 self.owner.clone(),
-                self.reserve.clone(),
                 self.lending_market.clone(),
+                self.reserve.clone(),
                 self.lending_market_authority.clone(),
                 self.reserve_liquidity_mint.clone(),
                 self.reserve_collateral_mint.clone(),
@@ -329,6 +343,7 @@ mod kamino {
                 self.user_liquidity.clone(),
                 self.collateral_token_program.clone(),
                 self.liquidity_token_program.clone(),
+                self.instructions_sysvar.clone(),
             ]
         }
     }
