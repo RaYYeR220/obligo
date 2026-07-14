@@ -3,11 +3,14 @@
 target
 **/*.rs.bk
 node_modules
+app/node_modules
 test-ledger
 .yarn
 .surfpool
 dist
+app/dist
 build
+.playwright-mcp
 *.log
 .env
 .env.*
