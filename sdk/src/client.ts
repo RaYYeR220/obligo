@@ -578,6 +578,49 @@ export class ObligoClient {
     return sig;
   }
 
+  /**
+   * Build + send a transaction whose fee payer is signed by an external signer — a browser wallet's
+   * `signTransaction`, a hardware device, a relayer — reusing the same devnet backoff as
+   * `sendAndConfirm`. Any `extraSigners` (ancillary keypairs, e.g. a freshly-generated mint) are
+   * partial-signed first; then `sign` is invoked to add the fee payer's signature and returns the
+   * fully-signed transaction. The fee payer needs no `Keypair` on this side.
+   */
+  async sendSigned(
+    ixs: TransactionInstruction[],
+    feePayer: PublicKey,
+    sign: (tx: Transaction) => Promise<Transaction>,
+    opts: SendOpts & { extraSigners?: Keypair[] } = {},
+  ): Promise<string> {
+    const commitment: Commitment = opts.commitment ?? 'confirmed';
+    const tx = new Transaction();
+    if (opts.computeUnits) {
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: opts.computeUnits }));
+    }
+    if (opts.priorityMicroLamports) {
+      tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: opts.priorityMicroLamports }));
+    }
+    for (const ix of ixs) tx.add(ix);
+    tx.feePayer = feePayer;
+
+    const { blockhash, lastValidBlockHeight } = await this.withRetry(() =>
+      this.connection.getLatestBlockhash(commitment),
+    );
+    tx.recentBlockhash = blockhash;
+    if (opts.extraSigners && opts.extraSigners.length > 0) tx.partialSign(...opts.extraSigners);
+
+    const signed = await sign(tx);
+
+    const raw = signed.serialize();
+    const sig = await this.withRetry(() =>
+      this.connection.sendRawTransaction(raw, {
+        preflightCommitment: commitment,
+        maxRetries: 5,
+      }),
+    );
+    await this.confirmSignature(sig, lastValidBlockHeight, commitment);
+    return sig;
+  }
+
   private async confirmSignature(
     signature: string,
     lastValidBlockHeight: number,
