@@ -50,7 +50,8 @@ interface Props {
 
 const nodeRadius = (m: MerchantView): number => {
   const c = Number(m.collateral) / 1e6;
-  return 13 + Math.sqrt(c) * 3.4; // ~13 (empty) .. ~40 ($50)
+  // floor at 22 so even a $0.00 merchant is big enough for its label to sit inside the circle
+  return Math.max(22, 13 + Math.sqrt(c) * 3.1); // ~22 (empty) .. ~35 ($50)
 };
 
 const edgeWidth = (amount: bigint): number => {
@@ -100,14 +101,15 @@ export default function Graph(props: Props) {
       .filter((e) => idx.has(e.debtorStr) && idx.has(e.creditorStr))
       .map((e) => ({ source: e.debtorStr, target: e.creditorStr }));
 
-    const cy = H * 0.45;
+    const cy = H * 0.42;
     const sim = forceSimulation(nodes)
-      .force('charge', forceManyBody().strength(-1200))
-      .force('link', forceLink(links).id((d: SimulationNodeDatum & { id?: string }) => d.id!).distance(172).strength(0.55))
+      .force('charge', forceManyBody().strength(-1600))
+      .force('link', forceLink(links).id((d: SimulationNodeDatum & { id?: string }) => d.id!).distance(200).strength(0.5))
       .force('center', forceCenter(W / 2, cy))
-      .force('x', forceX(W / 2).strength(0.07))
-      .force('y', forceY(cy).strength(0.1))
-      .force('collide', forceCollide<Node>().radius((d) => d.r + 30).strength(0.92))
+      .force('x', forceX(W / 2).strength(0.06))
+      .force('y', forceY(cy).strength(0.09))
+      // collide radius leaves room for the name + address labels that hang below each node
+      .force('collide', forceCollide<Node>().radius((d) => d.r + 44).strength(0.95))
       .stop();
 
     for (let i = 0; i < 340; i++) sim.tick();
@@ -115,9 +117,10 @@ export default function Graph(props: Props) {
     const padX = 74;
     const next = new Map<string, { x: number; y: number }>();
     for (const n of nodes) {
+      // keep the bottom band clear — the money-shot deck and the health legend live there
       next.set(n.id, {
         x: Math.max(padX, Math.min(W - padX, n.x ?? W / 2)),
-        y: Math.max(64, Math.min(H - 104, n.y ?? cy)),
+        y: Math.max(58, Math.min(H - 150, n.y ?? cy)),
       });
     }
     setPositions(next);
@@ -322,15 +325,42 @@ export default function Graph(props: Props) {
                 <animateTransform attributeName="transform" type="rotate" from={`0 ${p.x} ${p.y}`} to={`360 ${p.x} ${p.y}`} dur="9s" repeatCount="indefinite" />
               </circle>
             )}
-            <text x={p.x} y={p.y + 3.5} textAnchor="middle" fontFamily="var(--font-mono)" fontSize={10} fontWeight={600} fill={stroke} style={{ pointerEvents: 'none' }}>
+            <text x={p.x} y={p.y + Math.max(3, r * 0.16)} textAnchor="middle" fontFamily="var(--font-mono)" fontSize={Math.max(8, Math.min(11, r * 0.42))} fontWeight={600} fill={stroke} style={{ pointerEvents: 'none' }}>
               {usdCompact(m.collateral)}
             </text>
-            <text x={p.x} y={p.y + r + 14} textAnchor="middle" fontFamily="var(--font-display)" fontSize={11} fontWeight={700} fill="var(--ink)" style={{ pointerEvents: 'none' }}>
+            <text
+              x={p.x}
+              y={p.y + r + 15}
+              textAnchor="middle"
+              fontFamily="var(--font-display)"
+              fontSize={11}
+              fontWeight={700}
+              fill="var(--ink)"
+              paintOrder="stroke"
+              stroke="var(--bg)"
+              strokeWidth={4}
+              strokeLinejoin="round"
+              style={{ pointerEvents: 'none' }}
+            >
               {displayName(m).label}
             </text>
-            <text x={p.x} y={p.y + r + 25} textAnchor="middle" fontFamily="var(--font-mono)" fontSize={8} fill="var(--ink-3)" style={{ pointerEvents: 'none' }}>
-              {shortAddr(m.address, 4)}
-            </text>
+            {(hover === m.address || sel) && (
+              <text
+                x={p.x}
+                y={p.y + r + 26}
+                textAnchor="middle"
+                fontFamily="var(--font-mono)"
+                fontSize={8}
+                fill="var(--ink-3)"
+                paintOrder="stroke"
+                stroke="var(--bg)"
+                strokeWidth={3.5}
+                strokeLinejoin="round"
+                style={{ pointerEvents: 'none' }}
+              >
+                {shortAddr(m.address, 4)}
+              </text>
+            )}
           </motion.g>
         );
       })}

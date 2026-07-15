@@ -190,6 +190,13 @@ a:hover { color: var(--amber-hi); }
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  min-height: 34px;
+  line-height: 1.1;
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.06em;
@@ -203,9 +210,9 @@ a:hover { color: var(--amber-hi); }
   transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease,
     transform 0.06s ease;
 }
-.btn:hover { border-color: var(--line-strong); background: #1b2029; }
-.btn:active { transform: translateY(1px); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:hover:not(:disabled) { border-color: var(--line-strong); background: #1b2029; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .btn-amber {
   color: #120c00;
@@ -213,11 +220,17 @@ a:hover { color: var(--amber-hi); }
   border-color: var(--amber);
   font-weight: 600;
 }
-.btn-amber:hover { background: var(--amber-hi); border-color: var(--amber-hi); }
-.btn-amber:disabled { background: var(--amber); }
+.btn-amber:hover:not(:disabled) { background: var(--amber-hi); border-color: var(--amber-hi); }
+/* muted, not amber-on-amber, when there is nothing to confirm */
+.btn-amber:disabled {
+  background: var(--panel-hi);
+  border-color: var(--line-2);
+  color: var(--ink-3);
+  opacity: 1;
+}
 
 .btn-ghost { background: transparent; }
-.btn-ghost:hover { background: var(--panel-hi); }
+.btn-ghost:hover:not(:disabled) { background: var(--panel-hi); }
 
 input, select {
   font-family: var(--font-mono);

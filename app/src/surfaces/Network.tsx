@@ -166,21 +166,21 @@ export default function Network() {
                   <button className="btn btn-ghost" disabled={sending} onClick={dismiss}>✕</button>
                 </div>
                 {!canRun && (
-                  <div className="mono dim" style={{ fontSize: 10, marginTop: 8 }}>
+                  <div className="mono" style={{ fontSize: 10.5, marginTop: 8, color: 'var(--ink-2)' }}>
                     {wallet.keypair ? 'this key needs devnet SOL to sign' : 'reads only — import a funded dev key to run it for real'}
                   </div>
                 )}
               </motion.div>
             ) : phase === 'idle' ? (
               <motion.div key="idle" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 14 }} className="panel" style={{ padding: 16 }}>
-                <div className="row spread center">
-                  <div>
+                <div className="row spread center gap-12">
+                  <div style={{ minWidth: 0 }}>
                     <div className="eyebrow">the money shot</div>
-                    <div className="mono dim" style={{ fontSize: 11, marginTop: 6, maxWidth: 250 }}>
+                    <div className="mono dim" style={{ fontSize: 11, marginTop: 6 }}>
                       Find a ring of debt and cancel it around the cycle — zero cash moves.
                     </div>
                   </div>
-                  <button className="btn btn-amber" onClick={scan} disabled={!net}>scan for cycle</button>
+                  <button className="btn btn-amber" style={{ flexShrink: 0 }} onClick={scan} disabled={!net}>scan for cycle</button>
                 </div>
                 {scanMsg && <div className="banner warn" style={{ marginTop: 12 }}>{scanMsg}</div>}
               </motion.div>
