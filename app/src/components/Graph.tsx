@@ -103,16 +103,19 @@ export default function Graph(props: Props) {
 
     const cy = H * 0.42;
     const sim = forceSimulation(nodes)
-      .force('charge', forceManyBody().strength(-1600))
-      .force('link', forceLink(links).id((d: SimulationNodeDatum & { id?: string }) => d.id!).distance(200).strength(0.5))
+      // moderate repulsion + a firm pull to centre keeps the cloud off the clamp edges (where
+      // clusters used to pile up and overlap); collide does the actual node separation.
+      .force('charge', forceManyBody().strength(-1400))
+      .force('link', forceLink(links).id((d: SimulationNodeDatum & { id?: string }) => d.id!).distance(215).strength(0.42))
       .force('center', forceCenter(W / 2, cy))
-      .force('x', forceX(W / 2).strength(0.06))
-      .force('y', forceY(cy).strength(0.09))
-      // collide radius leaves room for the name + address labels that hang below each node
-      .force('collide', forceCollide<Node>().radius((d) => d.r + 44).strength(0.95))
+      .force('x', forceX(W / 2).strength(0.1))
+      .force('y', forceY(cy).strength(0.13))
+      // collide radius leaves room for the name + address labels that hang below each node, and is
+      // the hard guarantee that two nodes never touch — bidirectional pairs used to collapse together
+      .force('collide', forceCollide<Node>().radius((d) => d.r + 42).strength(1))
       .stop();
 
-    for (let i = 0; i < 340; i++) sim.tick();
+    for (let i = 0; i < 700; i++) sim.tick();
 
     const padX = 74;
     const next = new Map<string, { x: number; y: number }>();
@@ -254,7 +257,7 @@ export default function Graph(props: Props) {
               stroke={inRing && ringActive ? 'var(--amber)' : 'var(--ink-4)'}
               strokeWidth={inRing && ringActive ? w + 0.6 : w}
               markerEnd={inRing && ringActive ? 'url(#arrow-ring)' : 'url(#arrow)'}
-              strokeLinecap="round"
+              strokeLinecap="butt"
               filter={inRing && ringActive ? 'url(#glow)' : undefined}
               style={{ transition: 'stroke-width 0.15s linear' }}
             />
