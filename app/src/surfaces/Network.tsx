@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { findClearableCycle, type ClearableCycle } from '@obligo/sdk';
 import Graph, { type ClearPhase } from '../components/Graph.tsx';
@@ -25,7 +25,26 @@ export default function Network() {
   const [sending, setSending] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const revealed = useRef(false);
+
+  // Merchants that are actually part of the live obligation graph (an endpoint of a live edge).
+  // The network accumulates registrations over time; most sit idle at $0. The default view shows
+  // only the ones with live debt, which is where every clearable cycle lives anyway — nothing is
+  // hidden, the "all" toggle brings the full registry back.
+  const liveAddrs = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of net?.edges ?? []) {
+      s.add(e.debtorStr);
+      s.add(e.creditorStr);
+    }
+    return s;
+  }, [net]);
+  const liveMerchants = useMemo(
+    () => (net ? net.merchants.filter((m) => liveAddrs.has(m.address)) : []),
+    [net, liveAddrs],
+  );
+  const shownMerchants = !net ? [] : showAll || liveMerchants.length === 0 ? net.merchants : liveMerchants;
 
   useEffect(() => {
     if (net && !revealed.current) revealed.current = true;
@@ -115,7 +134,7 @@ export default function Network() {
       <div className="left">
         {net && (
           <Graph
-            merchants={net.merchants}
+            merchants={shownMerchants}
             edges={net.edges}
             ring={ring}
             phase={phase}
@@ -125,6 +144,34 @@ export default function Network() {
             onSelect={setSelected}
             reveal={!revealed.current}
           />
+        )}
+
+        {/* view filter — the graph accumulates idle merchants; default to the ones with live debt */}
+        {net && liveMerchants.length > 0 && liveMerchants.length < net.merchants.length && (
+          <div style={{ position: 'absolute', top: 14, left: 16, zIndex: 2, display: 'flex', gap: 2, padding: 3, background: 'linear-gradient(180deg,var(--panel),var(--panel-2))', border: '1px solid var(--line)', borderRadius: 3 }}>
+            {([[false, `live debt · ${liveMerchants.length}`], [true, `all · ${net.merchants.length}`]] as const).map(([val, label]) => (
+              <button
+                key={label}
+                onClick={() => setShowAll(val)}
+                className="mono"
+                style={{
+                  cursor: 'pointer',
+                  fontSize: 10,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  padding: '5px 10px',
+                  borderRadius: 2,
+                  border: 0,
+                  background: showAll === val ? 'var(--amber)' : 'transparent',
+                  color: showAll === val ? '#120c00' : 'var(--ink-3)',
+                  fontWeight: showAll === val ? 600 : 400,
+                  transition: 'background 0.14s ease, color 0.14s ease',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         )}
 
         {loading && !net && (
