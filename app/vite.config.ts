@@ -23,7 +23,16 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
-    include: ['@solana/web3.js', '@solana/spl-token', 'buffer'],
+    include: [
+      '@solana/web3.js',
+      '@solana/spl-token',
+      'buffer',
+      '@solana/wallet-adapter-base',
+      '@solana/wallet-adapter-react',
+      '@solana/wallet-adapter-react-ui',
+      '@solana/wallet-adapter-phantom',
+      '@solana/wallet-adapter-solflare',
+    ],
   },
   server: { port: 5173 },
 });

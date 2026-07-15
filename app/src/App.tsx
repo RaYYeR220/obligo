@@ -1,7 +1,11 @@
-import { useState } from 'react';
-import { WalletProvider } from './lib/wallet.tsx';
+import { useMemo, useState } from 'react';
+import { ConnectionProvider, WalletProvider as AdapterWalletProvider } from '@solana/wallet-adapter-react';
+import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
+import { SignerProvider } from './lib/wallet.tsx';
 import { NetworkProvider, useNet } from './hooks/useNetworkData.tsx';
-import { networkStats } from './lib/obligo.ts';
+import { networkStats, RPC_DEFAULT } from './lib/obligo.ts';
 import { usd, num } from './lib/format.ts';
 import KeyBar from './components/KeyBar.tsx';
 import Network from './surfaces/Network.tsx';
@@ -78,11 +82,23 @@ function Shell() {
 }
 
 export default function App() {
+  // Devnet endpoint for the wallet adapter. Reads + sends still flow through the SDK client's own
+  // connection (lib/obligo.ts); this feeds the adapter's autoConnect + Standard-Wallet detection.
+  const wallets = useMemo(
+    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
+    [],
+  );
   return (
-    <WalletProvider>
-      <NetworkProvider>
-        <Shell />
-      </NetworkProvider>
-    </WalletProvider>
+    <ConnectionProvider endpoint={RPC_DEFAULT}>
+      <AdapterWalletProvider wallets={wallets} autoConnect>
+        <WalletModalProvider>
+          <SignerProvider>
+            <NetworkProvider>
+              <Shell />
+            </NetworkProvider>
+          </SignerProvider>
+        </WalletModalProvider>
+      </AdapterWalletProvider>
+    </ConnectionProvider>
   );
 }

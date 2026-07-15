@@ -435,6 +435,80 @@ label {
   96% { opacity: 1; }
 }
 
+/* ---- top-bar "Connect Wallet" CTA (primary signer path) ---- */
+.nav button.connect-cta { color: var(--amber); font-weight: 600; }
+.nav button.connect-cta:hover { color: var(--amber-hi); background: var(--amber-dim); }
+
+/* ============================================================================
+   Wallet-adapter modal + button — re-skinned from the default purple to the
+   terminal's dark ground + phosphor-amber signal. Loaded after the adapter's
+   own stylesheet (see main.tsx), so these plain-class overrides win.
+   ============================================================================ */
+.wallet-adapter-modal-overlay {
+  background: rgba(4, 5, 8, 0.74);
+  backdrop-filter: blur(3px);
+}
+.wallet-adapter-modal-wrapper {
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-panel);
+  font-family: var(--font-display);
+}
+.wallet-adapter-modal-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  font-size: 19px;
+}
+.wallet-adapter-modal-button-close {
+  background: var(--panel-hi);
+  border-radius: 2px;
+}
+.wallet-adapter-modal-button-close svg { fill: var(--ink-3); transition: fill 0.14s ease; }
+.wallet-adapter-modal-button-close:hover svg { fill: var(--amber); }
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--panel-hi);
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.wallet-adapter-modal-list .wallet-adapter-button:not([disabled]):hover {
+  background: var(--amber-dim);
+  border-color: var(--amber);
+  color: var(--amber-hi);
+}
+.wallet-adapter-modal-list .wallet-adapter-button-trigger {
+  background: var(--panel-hi);
+}
+.wallet-adapter-modal-list-more {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+}
+.wallet-adapter-modal-list-more svg { fill: var(--ink-2); stroke: var(--ink-2); }
+
+/* the primary trigger / "get started" buttons — amber, matching .btn-amber */
+.wallet-adapter-button-trigger,
+.wallet-adapter-modal-middle-button {
+  background: var(--amber);
+  color: #120c00;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 2px;
+}
+.wallet-adapter-button-trigger:not([disabled]):hover,
+.wallet-adapter-modal-middle-button:hover {
+  background: var(--amber-hi);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .grain { animation: none; }
   .live-dot { animation: none; }

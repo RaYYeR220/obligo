@@ -1,5 +1,4 @@
-import type { Keypair, TransactionInstruction } from '@solana/web3.js';
-import { ObligoClient, OBLIGO_ERRORS } from '@obligo/sdk';
+import { OBLIGO_ERRORS } from '@obligo/sdk';
 
 export const EXPLORER = 'https://explorer.solana.com';
 export const txUrl = (sig: string) => `${EXPLORER}/tx/${sig}?cluster=devnet`;
@@ -15,21 +14,4 @@ export function humaniseError(err: unknown): string {
   if (/insufficient (lamports|funds)/i.test(raw)) return 'not enough SOL for fees + rent';
   if (/blockhash/i.test(raw)) return 'blockhash expired — try again';
   return raw.length > 160 ? raw.slice(0, 160) + '…' : raw;
-}
-
-export interface SendResult {
-  sig: string;
-}
-
-/** Sign + send with the dev keypair. First signer is the fee payer. */
-export async function send(
-  client: ObligoClient,
-  ixs: TransactionInstruction[],
-  signers: Keypair[],
-  computeUnits?: number,
-): Promise<string> {
-  return client.sendAndConfirm(ixs, signers, {
-    priorityMicroLamports: 5000,
-    computeUnits,
-  });
 }

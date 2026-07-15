@@ -4,11 +4,11 @@ import { motion } from 'framer-motion';
 import { batchPda, decodePointBatch } from '@obligo/sdk';
 import { connection } from '../lib/obligo.ts';
 import { useNet } from '../hooks/useNetworkData.tsx';
-import { useWallet } from '../lib/wallet.tsx';
+import { useSigner } from '../lib/wallet.tsx';
 import type { MerchantView, OfferView } from '../lib/obligo.ts';
 import { bps, shortAddr, usd } from '../lib/format.ts';
 import { displayName } from '../lib/names.ts';
-import { humaniseError, send, txUrl } from '../lib/tx.ts';
+import { humaniseError, txUrl } from '../lib/tx.ts';
 
 interface Holding {
   issuer: MerchantView;
@@ -17,7 +17,7 @@ interface Holding {
 
 export default function Redeem() {
   const { net, client, reload } = useNet();
-  const wallet = useWallet();
+  const signer = useSigner();
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [pick, setPick] = useState<string | null>(null);
   const [venue, setVenue] = useState<string | null>(null);
@@ -27,11 +27,11 @@ export default function Redeem() {
   const [err, setErr] = useState<string | null>(null);
 
   const loadHoldings = useCallback(async () => {
-    if (!wallet.keypair || !net) {
+    if (!signer.connected || !signer.publicKey || !net) {
       setHoldings([]);
       return;
     }
-    const cust = wallet.keypair.publicKey;
+    const cust = signer.publicKey;
     // one batched read for every merchant's point batch with this customer — not N calls
     const pdas = net.merchants.map((m) => batchPda(m.pda, cust, client.programId));
     const found: Holding[] = [];
@@ -45,7 +45,7 @@ export default function Redeem() {
       });
     }
     setHoldings(found);
-  }, [wallet.keypair, net, client]);
+  }, [signer.connected, signer.publicKey, net, client]);
 
   useEffect(() => {
     void loadHoldings();
@@ -68,19 +68,19 @@ export default function Redeem() {
   );
 
   async function redeem() {
-    if (!wallet.keypair || !selected || !venueMerchant) return;
+    if (!signer.connected || !signer.publicKey || !selected || !venueMerchant) return;
     setErr(null);
     setBusy(true);
     try {
       const points = Math.round(parseFloat(amt || '0'));
       const ix = client.redeem({
-        payer: wallet.keypair.publicKey,
-        customer: wallet.keypair.publicKey,
+        payer: signer.publicKey,
+        customer: signer.publicKey,
         issuerMerchant: selected.issuer.pda,
         acceptorMerchant: venueMerchant.pda,
         points,
       });
-      const sig = await send(client, [ix], [wallet.keypair], 400_000);
+      const sig = await signer.signAndSend(client, [ix], undefined, 400_000);
       const face = BigInt(points) * selected.issuer.usdcPerPoint;
       setResult({ sig, issuer: displayName(selected.issuer).label, venue: displayName(venueMerchant).label, face });
       setAmt('');
@@ -93,13 +93,13 @@ export default function Redeem() {
     }
   }
 
-  if (!wallet.keypair) {
+  if (!signer.connected) {
     return (
       <div className="scroll-surface" style={{ padding: 40 }}>
         <div className="panel" style={{ padding: 32, maxWidth: 560, margin: '20px auto', textAlign: 'center' }}>
           <div className="brand-mark" style={{ fontSize: 30, marginBottom: 12 }}>▸ SPEND YOUR POINTS</div>
           <p className="mono dim" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
-            Import a dev key (top-right <b style={{ color: 'var(--amber)' }}>DEV KEY</b> menu) that holds a merchant's points.
+            <b style={{ color: 'var(--amber)' }}>Connect a wallet</b> (top-right) that holds a merchant's points — or fall back to a dev key.
             Redeeming burns them at an accepting venue and books a debt from the issuer to that venue —
             <b style={{ color: 'var(--green)' }}> no USDC moves</b>. To get points, issue some to this address from the Console.
           </p>
@@ -111,7 +111,7 @@ export default function Redeem() {
   return (
     <div className="scroll-surface" style={{ padding: '22px 26px', maxWidth: 1000, margin: '0 auto' }}>
       <div className="eyebrow">Redeem · customer</div>
-      <h2 style={{ fontSize: 22, margin: '4px 0 18px' }}>Spend points · <span className="mono dim" style={{ fontSize: 12, fontWeight: 400 }}>{shortAddr(wallet.keypair.publicKey.toBase58(), 5)}</span></h2>
+      <h2 style={{ fontSize: 22, margin: '4px 0 18px' }}>Spend points · <span className="mono dim" style={{ fontSize: 12, fontWeight: 400 }}>{shortAddr(signer.address!, 5)}</span></h2>
 
       {result && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="panel" style={{ padding: 20, marginBottom: 18, borderColor: 'var(--green)' }}>
@@ -134,7 +134,7 @@ export default function Redeem() {
       {holdings.length === 0 ? (
         <div className="banner warn">
           This address holds no points yet. From the <b>Console</b>, issue points to{' '}
-          <span className="mono">{shortAddr(wallet.keypair.publicKey.toBase58(), 4)}</span> (issuance needs the merchant to hold collateral). Then spend them here.
+          <span className="mono">{shortAddr(signer.address!, 4)}</span> (issuance needs the merchant to hold collateral). Then spend them here.
         </div>
       ) : (
         <div className="split" style={{ gridTemplateColumns: '340px 1fr', gap: 0, height: 'auto' }}>

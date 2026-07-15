@@ -3,6 +3,12 @@
 // of them are evaluated — which, for ES modules, means setting it in a module imported first.
 import { Buffer } from 'buffer';
 
-const g = globalThis as unknown as { Buffer?: typeof Buffer; global?: unknown };
+const g = globalThis as unknown as {
+  Buffer?: typeof Buffer;
+  global?: unknown;
+  process?: { env: Record<string, string | undefined> };
+};
 if (!g.Buffer) g.Buffer = Buffer;
 if (!g.global) g.global = globalThis;
+// Some wallet-adapter internals read `process.env.*`; give them a harmless empty shim in the browser.
+if (!g.process) g.process = { env: {} };

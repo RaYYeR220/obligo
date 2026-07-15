@@ -3,6 +3,7 @@ import './polyfills.ts'; // must stay first — establishes the Buffer global be
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
+import '@solana/wallet-adapter-react-ui/styles.css';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

@@ -5,15 +5,15 @@ import Graph, { type ClearPhase } from '../components/Graph.tsx';
 import MoneyShot from '../components/MoneyShot.tsx';
 import MerchantPanel from '../components/MerchantPanel.tsx';
 import { useNet } from '../hooks/useNetworkData.tsx';
-import { useWallet } from '../lib/wallet.tsx';
+import { useSigner } from '../lib/wallet.tsx';
 import { edgesForCycleFinder } from '../lib/obligo.ts';
-import { humaniseError, send } from '../lib/tx.ts';
+import { humaniseError } from '../lib/tx.ts';
 import { usd } from '../lib/format.ts';
 import { displayName } from '../lib/names.ts';
 
 export default function Network() {
   const { net, client, loading, error, reload } = useNet();
-  const wallet = useWallet();
+  const signer = useSigner();
   const [selected, setSelected] = useState<string | null>(null);
 
   const [phase, setPhase] = useState<ClearPhase>('idle');
@@ -72,12 +72,12 @@ export default function Network() {
   }
 
   async function runClear() {
-    if (!cycle || !wallet.keypair) return;
+    if (!cycle || !signer.connected || !signer.publicKey) return;
     setErr(null);
     setSending(true);
     try {
-      const ix = client.clearCycle({ cranker: wallet.keypair.publicKey, cycle });
-      const sig = await send(client, [ix], [wallet.keypair]);
+      const ix = client.clearCycle({ cranker: signer.publicKey, cycle });
+      const sig = await signer.signAndSend(client, [ix]);
       setTxSig(sig);
       setPreview(false);
       setSending(false);
@@ -108,7 +108,7 @@ export default function Network() {
   }
 
   const extinguished = cycle ? cycle.minAmount * BigInt(cycle.ring.length) : 0n;
-  const canRun = !!wallet.keypair && (wallet.sol === null || wallet.sol > 0.001);
+  const canRun = signer.connected && (signer.sol === null || signer.sol > 0.001);
 
   return (
     <div className="split">
@@ -159,7 +159,7 @@ export default function Network() {
                 </div>
                 {err && <div className="banner err" style={{ marginTop: 10 }}>{err}</div>}
                 <div className="row gap-8" style={{ marginTop: 14 }}>
-                  <button className="btn btn-amber grow" disabled={!canRun || sending} onClick={runClear} title={canRun ? '' : 'import a funded devnet key to sign'}>
+                  <button className="btn btn-amber grow" disabled={!canRun || sending} onClick={runClear} title={canRun ? '' : 'connect a wallet or import a funded dev key to sign'}>
                     {sending ? 'confirming…' : 'run clear_cycle'}
                   </button>
                   <button className="btn grow" disabled={sending} onClick={runPreview}>preview</button>
@@ -167,7 +167,7 @@ export default function Network() {
                 </div>
                 {!canRun && (
                   <div className="mono" style={{ fontSize: 10.5, marginTop: 8, color: 'var(--ink-2)' }}>
-                    {wallet.keypair ? 'this key needs devnet SOL to sign' : 'reads only — import a funded dev key to run it for real'}
+                    {signer.connected ? 'this signer needs devnet SOL to sign' : 'reads only — connect a wallet or import a funded dev key to run it for real'}
                   </div>
                 )}
               </motion.div>

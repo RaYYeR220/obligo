@@ -7,33 +7,33 @@ import {
 } from '@solana/spl-token';
 import type { Merchant } from '@obligo/sdk';
 import { useNet } from '../hooks/useNetworkData.tsx';
-import { useWallet, fetchUsdc } from '../lib/wallet.tsx';
+import { useSigner, fetchUsdc } from '../lib/wallet.tsx';
 import { bps, healthColor, healthLabel, pct, shortAddr, usd } from '../lib/format.ts';
 import { displayName } from '../lib/names.ts';
-import { humaniseError, send, txUrl } from '../lib/tx.ts';
+import { humaniseError, txUrl } from '../lib/tx.ts';
 import { healthBps, isSolvent, requiredCollateral } from '@obligo/sdk';
 
 type Toast = { kind: 'ok' | 'err'; text: string; sig?: string } | null;
 
 export default function Console() {
   const { net, client, reload } = useNet();
-  const wallet = useWallet();
+  const signer = useSigner();
   const [merchant, setMerchant] = useState<Merchant | null>(null);
   const [usdcBal, setUsdcBal] = useState<bigint>(0n);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
 
   const loadSelf = useCallback(async () => {
-    if (!wallet.keypair) {
+    if (!signer.connected || !signer.publicKey) {
       setMerchant(null);
       return;
     }
-    const m = await client.getMerchantByAuthority(wallet.keypair.publicKey);
+    const m = await client.getMerchantByAuthority(signer.publicKey);
     setMerchant(m);
     if (net?.protocol) {
-      setUsdcBal(await fetchUsdc(net.protocol.usdcMint, wallet.keypair.publicKey));
+      setUsdcBal(await fetchUsdc(net.protocol.usdcMint, signer.publicKey));
     }
-  }, [wallet.keypair, client, net?.protocol]);
+  }, [signer.connected, signer.publicKey, client, net?.protocol]);
 
   useEffect(() => {
     void loadSelf();
@@ -54,7 +54,7 @@ export default function Console() {
     }
   };
 
-  if (!wallet.keypair) {
+  if (!signer.connected || !signer.publicKey) {
     return (
       <div className="scroll-surface" style={{ padding: 40 }}>
         <Empty />
@@ -62,7 +62,7 @@ export default function Console() {
     );
   }
 
-  const kp = wallet.keypair;
+  const pk = signer.publicKey;
   const hasMint = !!merchant && !new PublicKey(merchant.pointsMint).equals(PublicKey.default);
   const mv = merchant
     ? { health: healthBps(merchant), solvent: isSolvent(merchant), required: requiredCollateral(merchant) }
@@ -73,10 +73,10 @@ export default function Console() {
       <div className="row spread center" style={{ marginBottom: 18 }}>
         <div>
           <div className="eyebrow">Merchant console</div>
-          <h2 style={{ fontSize: 22, marginTop: 4 }}>{merchant ? displayName(merchant).label : 'Unregistered'} <span className="mono dim" style={{ fontSize: 12, fontWeight: 400 }}>· {shortAddr(kp.publicKey.toBase58(), 5)}</span></h2>
+          <h2 style={{ fontSize: 22, marginTop: 4 }}>{merchant ? displayName(merchant).label : 'Unregistered'} <span className="mono dim" style={{ fontSize: 12, fontWeight: 400 }}>· {shortAddr(pk.toBase58(), 5)}</span></h2>
         </div>
         <div className="row gap-16">
-          <MiniStat k="wallet sol" v={wallet.sol === null ? '…' : wallet.sol.toFixed(3) + ' ◎'} />
+          <MiniStat k="wallet sol" v={signer.sol === null ? '…' : signer.sol.toFixed(3) + ' ◎'} />
           <MiniStat k="test-usdc" v={usd(usdcBal)} accent={usdcBal > 0n ? 'var(--green)' : 'var(--ink-3)'} />
         </div>
       </div>
@@ -114,17 +114,17 @@ export default function Console() {
 
       <div className="formgrid" style={{ gap: 18 }}>
         {!merchant ? (
-          <RegisterCard busy={busy} run={run} client={client} kp={kp} />
+          <RegisterCard busy={busy} run={run} client={client} pk={pk} signer={signer} />
         ) : (
           <>
-            <DepositCard busy={busy} run={run} client={client} kp={kp} merchantPda={client.merchant(kp.publicKey)} usdcBal={usdcBal} usdcMint={net?.protocol?.usdcMint ?? null} />
+            <DepositCard busy={busy} run={run} client={client} pk={pk} signer={signer} merchantPda={client.merchant(pk)} usdcBal={usdcBal} usdcMint={net?.protocol?.usdcMint ?? null} />
             {!hasMint ? (
-              <CreateMintCard busy={busy} run={run} client={client} kp={kp} name={displayName(merchant).label} />
+              <CreateMintCard busy={busy} run={run} client={client} pk={pk} signer={signer} name={displayName(merchant).label} />
             ) : (
-              <IssueCard busy={busy} run={run} client={client} kp={kp} />
+              <IssueCard busy={busy} run={run} client={client} pk={pk} signer={signer} />
             )}
-            <SetTermsCard busy={busy} run={run} client={client} kp={kp} merchant={merchant} />
-            <OfferCard busy={busy} run={run} client={client} kp={kp} />
+            <SetTermsCard busy={busy} run={run} client={client} pk={pk} signer={signer} merchant={merchant} />
+            <OfferCard busy={busy} run={run} client={client} pk={pk} signer={signer} />
           </>
         )}
       </div>
@@ -144,7 +144,7 @@ function Card({ title, sub, children }: { title: string; sub: string; children: 
   );
 }
 
-function RegisterCard({ busy, run, client, kp }: any) {
+function RegisterCard({ busy, run, client, pk, signer }: any) {
   const [name, setName] = useState('CAFE');
   const [perPoint, setPerPoint] = useState('0.01');
   const [reserve, setReserve] = useState('30');
@@ -158,33 +158,33 @@ function RegisterCard({ busy, run, client, kp }: any) {
         <Field label="point ttl (days)"><input value={ttl} onChange={(e) => setTtl(e.target.value)} /></Field>
       </div>
       <button className="btn btn-amber" style={{ width: '100%', marginTop: 6 }} disabled={!!busy}
-        onClick={() => run('register', () => send(client, [client.registerMerchant({
-          authority: kp.publicKey, name,
+        onClick={() => run('register', () => signer.signAndSend(client, [client.registerMerchant({
+          authority: pk, name,
           usdcPerPoint: Math.round(parseFloat(perPoint) * 1e6),
           reserveBps: Math.round(parseFloat(reserve) * 100),
           pointTtl: Math.round(parseFloat(ttl) * 86400),
-        })], [kp]))}>
+        })]))}>
         {busy === 'register' ? 'confirming…' : 'register on devnet'}
       </button>
     </Card>
   );
 }
 
-function DepositCard({ busy, run, client, kp, merchantPda, usdcBal, usdcMint }: any) {
+function DepositCard({ busy, run, client, pk, signer, merchantPda, usdcBal, usdcMint }: any) {
   const [amt, setAmt] = useState('50');
   const disabled = !!busy || usdcBal <= 0n;
   return (
     <Card title="deposit collateral" sub="Backs your points. Partial collateral is the whole idea — escrow a fraction of face and let the market price your credit.">
       {usdcBal <= 0n && (
         <div className="banner warn" style={{ marginBottom: 12 }}>
-          This key holds no test-USDC. The devnet settlement mint is dev-controlled, so deposits are gated to keys that hold it. Registration, mint creation and offers still work with SOL alone.
+          This account holds no test-USDC. The devnet settlement mint is dev-controlled, so deposits are gated to accounts that hold it. Registration, mint creation and offers still work with SOL alone.
         </div>
       )}
       <Field label="amount ($)"><input value={amt} onChange={(e) => setAmt(e.target.value)} /></Field>
       <button className="btn btn-amber" style={{ width: '100%' }} disabled={disabled}
         onClick={() => run('deposit', () => {
-          const fromUsdc = getAssociatedTokenAddressSync(usdcMint, kp.publicKey, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
-          return send(client, [client.depositCollateral({ depositor: kp.publicKey, merchant: merchantPda, fromUsdc, amount: Math.round(parseFloat(amt) * 1e6) })], [kp]);
+          const fromUsdc = getAssociatedTokenAddressSync(usdcMint, pk, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+          return signer.signAndSend(client, [client.depositCollateral({ depositor: pk, merchant: merchantPda, fromUsdc, amount: Math.round(parseFloat(amt) * 1e6) })]);
         })}>
         {busy === 'deposit' ? 'confirming…' : 'deposit'}
       </button>
@@ -192,7 +192,7 @@ function DepositCard({ busy, run, client, kp, merchantPda, usdcBal, usdcMint }: 
   );
 }
 
-function CreateMintCard({ busy, run, client, kp, name }: any) {
+function CreateMintCard({ busy, run, client, pk, signer, name }: any) {
   const [sym, setSym] = useState('PTS');
   return (
     <Card title="create points mint" sub="A Token-2022 mint bound to the Obligo hook. Hook authority is burned at creation — the rules can never be repointed.">
@@ -201,19 +201,19 @@ function CreateMintCard({ busy, run, client, kp, name }: any) {
         <Field label="symbol (≤10)"><input value={sym} maxLength={10} onChange={(e) => setSym(e.target.value)} /></Field>
       </div>
       <button className="btn btn-amber" style={{ width: '100%', marginTop: 6 }} disabled={!!busy}
-        onClick={() => run('mint', () => send(client, [client.createPointsMint({
-          authority: kp.publicKey,
+        onClick={() => run('mint', () => signer.signAndSend(client, [client.createPointsMint({
+          authority: pk,
           name: (document.getElementById('mintname') as HTMLInputElement).value,
           symbol: sym,
           uri: `https://obligo.xyz/${sym}.json`,
-        })], [kp], 600_000))}>
+        })], undefined, 600_000))}>
         {busy === 'mint' ? 'confirming…' : 'create Token-2022 mint'}
       </button>
     </Card>
   );
 }
 
-function IssueCard({ busy, run, client, kp }: any) {
+function IssueCard({ busy, run, client, pk, signer }: any) {
   const [cust, setCust] = useState('');
   const [amt, setAmt] = useState('500');
   let valid = false;
@@ -225,17 +225,17 @@ function IssueCard({ busy, run, client, kp }: any) {
       </Field>
       <div className="row gap-8" style={{ alignItems: 'flex-end' }}>
         <Field label="points"><input value={amt} onChange={(e) => setAmt(e.target.value)} /></Field>
-        <button className="btn btn-ghost" style={{ marginBottom: 14 }} onClick={() => setCust(kp.publicKey.toBase58())}>me</button>
+        <button className="btn btn-ghost" style={{ marginBottom: 14 }} onClick={() => setCust(pk.toBase58())}>me</button>
       </div>
       <button className="btn btn-amber" style={{ width: '100%' }} disabled={!!busy || !valid}
-        onClick={() => run('issue', () => send(client, [client.issuePoints({ authority: kp.publicKey, customer: new PublicKey(cust), amount: Math.round(parseFloat(amt)) })], [kp]))}>
+        onClick={() => run('issue', () => signer.signAndSend(client, [client.issuePoints({ authority: pk, customer: new PublicKey(cust), amount: Math.round(parseFloat(amt)) })]))}>
         {busy === 'issue' ? 'confirming…' : 'issue'}
       </button>
     </Card>
   );
 }
 
-function SetTermsCard({ busy, run, client, kp, merchant }: any) {
+function SetTermsCard({ busy, run, client, pk, signer, merchant }: any) {
   const [perPoint, setPerPoint] = useState((Number(merchant.usdcPerPoint) / 1e6).toString());
   const [reserve, setReserve] = useState((merchant.reserveBps / 100).toString());
   const [ttl, setTtl] = useState((Number(merchant.pointTtl) / 86400).toString());
@@ -247,21 +247,21 @@ function SetTermsCard({ busy, run, client, kp, merchant }: any) {
       </div>
       <Field label="point ttl (days)"><input value={ttl} onChange={(e) => setTtl(e.target.value)} /></Field>
       <button className="btn" style={{ width: '100%' }} disabled={!!busy}
-        onClick={() => run('terms', () => send(client, [client.setTerms({
-          authority: kp.publicKey,
+        onClick={() => run('terms', () => signer.signAndSend(client, [client.setTerms({
+          authority: pk,
           usdcPerPoint: Math.round(parseFloat(perPoint) * 1e6),
           reserveBps: Math.round(parseFloat(reserve) * 100),
           pointTtl: Math.round(parseFloat(ttl) * 86400),
-        })], [kp]))}>
+        })]))}>
         {busy === 'terms' ? 'confirming…' : 'update terms'}
       </button>
     </Card>
   );
 }
 
-function OfferCard({ busy, run, client, kp }: any) {
+function OfferCard({ busy, run, client, pk, signer }: any) {
   const { net } = useNet();
-  const self = client.merchant(kp.publicKey).toBase58();
+  const self = client.merchant(pk).toBase58();
   const issuers = (net?.merchants ?? []).filter((m: any) => m.address !== self);
   const [issuer, setIssuer] = useState('');
   const [rate, setRate] = useState('110');
@@ -283,17 +283,17 @@ function OfferCard({ busy, run, client, kp }: any) {
       <Field label="expires (days)"><input value={days} onChange={(e) => setDays(e.target.value)} /></Field>
       <div className="row gap-8">
         <button className="btn btn-amber grow" disabled={!!busy || !issuer}
-          onClick={() => run('offer', () => send(client, [client.postOffer({
-            acceptorAuthority: kp.publicKey,
+          onClick={() => run('offer', () => signer.signAndSend(client, [client.postOffer({
+            acceptorAuthority: pk,
             issuerMerchant: new PublicKey(issuer),
             rateBps: Math.round(parseFloat(rate) * 100),
             capacity: Math.round(parseFloat(cap) * 1e6),
             expiresAt: Math.floor(Date.now() / 1000) + Math.round(parseFloat(days) * 86400),
-          })], [kp]))}>
+          })]))}>
           {busy === 'offer' ? 'confirming…' : 'post offer'}
         </button>
         <button className="btn grow" disabled={!!busy || !issuer}
-          onClick={() => run('cancel', () => send(client, [client.cancelOffer({ acceptorAuthority: kp.publicKey, issuerMerchant: new PublicKey(issuer) })], [kp]))}>
+          onClick={() => run('cancel', () => signer.signAndSend(client, [client.cancelOffer({ acceptorAuthority: pk, issuerMerchant: new PublicKey(issuer) })]))}>
           cancel offer
         </button>
       </div>
@@ -335,9 +335,9 @@ function Empty() {
     <div className="panel" style={{ padding: 32, maxWidth: 560, margin: '40px auto', textAlign: 'center' }}>
       <div className="brand-mark" style={{ fontSize: 34, marginBottom: 12 }}>▸ RUN A MERCHANT</div>
       <p className="mono dim" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
-        The console signs real devnet transactions with a dev key. Open the <b style={{ color: 'var(--amber)' }}>DEV KEY</b> menu
-        (top right) to import a secret key or mint a burner, then fund it with free devnet SOL. Register a merchant,
-        create its Token-2022 points mint, and post acceptance offers — all with SOL alone.
+        The console signs real devnet transactions. <b style={{ color: 'var(--amber)' }}>Connect a wallet</b> (top right) —
+        Phantom, Solflare or Backpack — or fall back to a throwaway dev key / burner. Fund it with free devnet SOL,
+        then register a merchant, create its Token-2022 points mint, and post acceptance offers — all with SOL alone.
       </p>
     </div>
   );

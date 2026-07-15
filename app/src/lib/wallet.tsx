@@ -1,10 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Keypair, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+import {
+  Keypair,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  type Transaction,
+  type TransactionInstruction,
+} from '@solana/web3.js';
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
+import { useWallet as useAdapterWallet } from '@solana/wallet-adapter-react';
+import type { ObligoClient } from '@obligo/sdk';
 import bs58 from 'bs58';
 import { connection } from './obligo.ts';
 
@@ -46,59 +54,97 @@ export async function fetchUsdc(mint: PublicKey, owner: PublicKey): Promise<bigi
   }
 }
 
-interface WalletCtx {
-  keypair: Keypair | null;
+/** Which signer is actually backing writes right now. A connected browser wallet always wins; the
+ *  local dev key / burner is the clearly-secondary fallback. */
+export type SignerKind = 'wallet' | 'devkey';
+
+export interface Signer {
+  /** The active fee payer / authority. Null when nothing is connected. */
+  publicKey: PublicKey | null;
   address: string | null;
   sol: number | null;
+  connected: boolean;
+  kind: SignerKind | null;
+  /** Display name of the connected browser wallet (Phantom / Solflare / …), when `kind === 'wallet'`. */
+  walletName: string | null;
+
+  /**
+   * Build, sign and send `ixs` through the active signer, reusing the SDK's devnet backoff. The
+   * active pubkey is the fee payer; `extraSigners` (ancillary keypairs — e.g. a freshly-minted
+   * points mint) are partial-signed before the wallet / dev key signs.
+   */
+  signAndSend: (
+    client: ObligoClient,
+    ixs: TransactionInstruction[],
+    extraSigners?: Keypair[],
+    computeUnits?: number,
+  ) => Promise<string>;
+
+  refresh: () => Promise<void>;
+
+  // ---- dev-key fallback (secondary) ----
+  /** The local dev key / burner, if one is loaded — dormant while a browser wallet is connected. */
+  devkey: Keypair | null;
   importKey: (raw: string) => void;
   generate: () => Keypair;
   clear: () => void;
-  refresh: () => Promise<void>;
   error: string | null;
 }
 
-const Ctx = createContext<WalletCtx | null>(null);
+const Ctx = createContext<Signer | null>(null);
 
-export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const [keypair, setKeypair] = useState<Keypair | null>(null);
+export function SignerProvider({ children }: { children: React.ReactNode }) {
+  const adapter = useAdapterWallet();
+  const [devkey, setDevkey] = useState<Keypair | null>(null);
   const [sol, setSol] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Restore a previously-imported burner (kept only in localStorage on this machine; a dev key,
-  // never a real one — the UI says so).
+  // Restore a previously-imported burner (kept only in localStorage on this machine — a dev key,
+  // never a real one, and the UI says so). A browser wallet, when present, takes precedence over it.
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORE_KEY);
-      if (saved) setKeypair(keypairFromInput(saved));
+      if (saved) setDevkey(keypairFromInput(saved));
     } catch {
       /* ignore a corrupt saved key */
     }
   }, []);
 
+  // Browser wallet wins; the dev key is the fallback.
+  const walletConnected = adapter.connected && !!adapter.publicKey;
+  const kind: SignerKind | null = walletConnected ? 'wallet' : devkey ? 'devkey' : null;
+  const publicKey: PublicKey | null = walletConnected
+    ? adapter.publicKey
+    : devkey
+      ? devkey.publicKey
+      : null;
+  const address = publicKey ? publicKey.toBase58() : null;
+
   const refresh = useCallback(async () => {
-    if (!keypair) {
+    if (!publicKey) {
       setSol(null);
       return;
     }
     try {
-      setSol(await fetchSol(keypair.publicKey));
+      setSol(await fetchSol(publicKey));
     } catch {
       /* leave stale */
     }
-  }, [keypair]);
+  }, [publicKey]);
 
+  // Poll the active pubkey's balance (re-keyed whenever the active signer changes).
   useEffect(() => {
     void refresh();
-    if (!keypair) return;
+    if (!publicKey) return;
     const t = setInterval(refresh, 12_000);
     return () => clearInterval(t);
-  }, [keypair, refresh]);
+  }, [publicKey, refresh]);
 
   const importKey = useCallback((raw: string) => {
     try {
       const kp = keypairFromInput(raw);
       localStorage.setItem(STORE_KEY, raw.trim());
-      setKeypair(kp);
+      setDevkey(kp);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -108,36 +154,88 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const generate = useCallback(() => {
     const kp = Keypair.generate();
     localStorage.setItem(STORE_KEY, JSON.stringify(Array.from(kp.secretKey)));
-    setKeypair(kp);
+    setDevkey(kp);
     setError(null);
     return kp;
   }, []);
 
   const clear = useCallback(() => {
     localStorage.removeItem(STORE_KEY);
-    setKeypair(null);
-    setSol(null);
+    setDevkey(null);
+    setError(null);
   }, []);
 
-  const value = useMemo<WalletCtx>(
+  const signAndSend = useCallback<Signer['signAndSend']>(
+    async (client, ixs, extraSigners = [], computeUnits) => {
+      const opts = { priorityMicroLamports: 5000, computeUnits, extraSigners };
+      // Browser wallet takes precedence when connected.
+      if (adapter.connected && adapter.publicKey) {
+        const signTransaction = adapter.signTransaction;
+        if (!signTransaction) {
+          throw new Error('this wallet cannot sign transactions in-page — try Phantom, Solflare or Backpack');
+        }
+        return client.sendSigned(
+          ixs,
+          adapter.publicKey,
+          (tx: Transaction) => signTransaction(tx),
+          opts,
+        );
+      }
+      if (devkey) {
+        const kp = devkey;
+        return client.sendSigned(
+          ixs,
+          kp.publicKey,
+          async (tx: Transaction) => {
+            tx.partialSign(kp);
+            return tx;
+          },
+          opts,
+        );
+      }
+      throw new Error('no signer — connect a wallet or import a dev key');
+    },
+    [adapter, devkey],
+  );
+
+  const value = useMemo<Signer>(
     () => ({
-      keypair,
-      address: keypair?.publicKey.toBase58() ?? null,
+      publicKey,
+      address,
       sol,
+      connected: kind !== null,
+      kind,
+      walletName: walletConnected ? (adapter.wallet?.adapter.name ?? null) : null,
+      signAndSend,
+      refresh,
+      devkey,
       importKey,
       generate,
       clear,
-      refresh,
       error,
     }),
-    [keypair, sol, importKey, generate, clear, refresh, error],
+    [
+      publicKey,
+      address,
+      sol,
+      kind,
+      walletConnected,
+      adapter.wallet,
+      signAndSend,
+      refresh,
+      devkey,
+      importKey,
+      generate,
+      clear,
+      error,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
-export function useWallet(): WalletCtx {
+export function useSigner(): Signer {
   const c = useContext(Ctx);
-  if (!c) throw new Error('useWallet outside provider');
+  if (!c) throw new Error('useSigner outside provider');
   return c;
 }
