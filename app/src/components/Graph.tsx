@@ -207,10 +207,12 @@ export default function Graph(props: Props) {
       onClick={() => onSelect(null)}
     >
       <defs>
-        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        {/* userSpaceOnUse keeps the arrowhead a FIXED size regardless of edge thickness —
+            otherwise a highlighted ring edge (thicker stroke) balloons its marker and clips it. */}
+        <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" overflow="visible" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)" />
         </marker>
-        <marker id="arrow-ring" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+        <marker id="arrow-ring" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="13" markerHeight="13" markerUnits="userSpaceOnUse" overflow="visible" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="var(--amber)" />
         </marker>
         <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
