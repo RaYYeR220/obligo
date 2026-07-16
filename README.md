@@ -2,6 +2,8 @@
 
 **A permissionless clearing house for loyalty liabilities, on Solana.**
 
+**▶ Demo video:** https://youtu.be/_tPgKML6BHQ  ·  **Live app (devnet):** https://obligo-iota.vercel.app  ·  **Devnet tx log:** [`docs/DEVNET.md`](docs/DEVNET.md)
+
 A loyalty point is a debt a merchant hopes you never collect. Merchants issue points, book them as
 deferred revenue, and count on breakage — **roughly half of all loyalty points are never redeemed**.
 When a merchant tries to make its points spendable somewhere else, the whole thing collapses: accepting
