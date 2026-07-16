@@ -1,0 +1,13 @@
+.git
+node_modules
+app/node_modules
+sdk/node_modules
+target
+kamino-fork/target
+programs
+tests
+docs
+scripts
+dist
+app/dist
+*.so
