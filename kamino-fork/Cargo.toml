@@ -5,9 +5,9 @@ edition = "2021"
 description = "Fork-test harness: drives obligo's KaminoAdapter against real mainnet KLend"
 
 # A standalone workspace on purpose. If this crate were a member of the root workspace, a plain
-# `cargo-build-sbf` there would unify the `kamino` feature it turns on into the devnet obligo.so —
-# the exact feature-unification trap documented in _internal/PROGRESS.md. Kept apart, the root build
-# never sees `kamino`, and this harness never touches target/deploy/obligo.so.
+# `cargo-build-sbf` there would unify the `kamino` feature it turns on into the devnet obligo.so
+# (cargo unifies features across a workspace). Kept apart, the root build never sees `kamino`, and
+# this harness never touches target/deploy/obligo.so.
 [workspace]
 
 [lib]
